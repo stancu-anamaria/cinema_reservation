@@ -1,7 +1,7 @@
 import requests
 from services.admin_service import adauga_film
 
-API_KEY = "CHEIA_TA_AICI"  # pune cheia ta reală OMDb aici
+API_KEY = "68a685a0"
 BASE_URL = "https://www.omdbapi.com/"
 
 
