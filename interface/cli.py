@@ -2,6 +2,7 @@ from services.rezervari_service import creeaza_rezervare, sterge_rezervare
 from services.admin_service import adauga_film, adauga_sala
 
 
+
 def meniu():
     while True:
         print("\n=== MENIU CINEMA ===")
