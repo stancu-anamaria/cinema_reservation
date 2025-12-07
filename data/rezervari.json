@@ -1,1 +1,16 @@
-[]
+[
+    {
+        "id_rezervare": 1,
+        "film_id": 1,
+        "sala_id": 1,
+        "rand": 1,
+        "loc": 1
+    },
+    {
+        "id_rezervare": 2,
+        "film_id": 1,
+        "sala_id": 1,
+        "rand": 1,
+        "loc": 1
+    }
+]

@@ -1,95 +1,171 @@
 import streamlit as st
-import json
-from services.rezervari_service import creeaza_rezervare, sterge_rezervare, incarca_rezervari
-from services.admin_service import (
-    adauga_film, adauga_sala,
-    incarca_filme, incarca_sali
+
+from interface.filme_ui import (
+    pagina_vizualizare_filme,
+    pagina_adauga_film_manual,
+    pagina_sugestii_filme,
+    pagina_sterge_film,
+)
+from interface.sali_ui import (
+    pagina_vizualizare_sali,
+    pagina_adauga_sala,
+    pagina_sterge_sala,
+)
+from interface.rezervari_ui import (
+    pagina_creeaza_rezervare,
+    pagina_anuleaza_rezervare,
+    pagina_vizualizare_rezervari,
 )
 
 
-st.set_page_config(page_title="Cinema Reservation", page_icon="🎬", layout="centered")
+# ----------------- CONFIG PAGINĂ -----------------
+
+st.set_page_config(
+    page_title="Sistem de Rezervare Cinema",
+    page_icon="🎬",
+    layout="centered"
+)
 
 st.title("🎬 Sistem de Rezervare Cinema")
-st.write("Bun venit! Alege o acțiune din meniu.")
+st.write("Bun venit! Alege o acțiune din meniul din stânga.")
 
 
-# ---------------- MENIU -------------------
-meniu = st.sidebar.selectbox(
-    "Navigare",
-    ["Vizualizare filme", "Adaugă film", "Adaugă sală", "Creează rezervare", "Anulează rezervare"]
+# ----------------- INITIALIZARE SESSION STATE -----------------
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = None
+if "role" not in st.session_state:
+    st.session_state.role = "Client"
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
+
+# ----------------- AUTENTIFICARE -----------------
+
+def login(username: str, password: str):
+    if username == "admin" and password == "admin123":
+        st.session_state.logged_in = True
+        st.session_state.username = username
+        st.session_state.role = "Administrator"
+        st.session_state.is_admin = True
+        st.success("Te-ai autentificat ca administrator.")
+    elif username and password:
+        st.session_state.logged_in = True
+        st.session_state.username = username
+        st.session_state.role = "Client"
+        st.session_state.is_admin = False
+        st.info("Te-ai autentificat ca și client (drepturi limitate).")
+
+
+def logout():
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.session_state.role = "Client"
+    st.session_state.is_admin = False
+    st.experimental_rerun()
+
+
+# ----------------- SIDEBAR: PROFIL / LOGIN -----------------
+
+st.sidebar.markdown("## 👤 Profil")
+
+if st.session_state.logged_in:
+    st.sidebar.markdown(f"**Utilizator:** `{st.session_state.username}`")
+    st.sidebar.markdown(f"**Rol:** `{st.session_state.role}`")
+
+    if st.session_state.is_admin:
+        st.sidebar.success("✅ Ai toate drepturile (administrator).")
+    else:
+        st.sidebar.info("👀 Ești client – poți vizualiza și face rezervări.")
+
+    if st.sidebar.button("Delogare 🚪"):
+        logout()
+else:
+    st.sidebar.markdown("### Autentificare")
+    input_user = st.sidebar.text_input("Nume utilizator")
+    input_pass = st.sidebar.text_input("Parolă", type="password")
+
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("Autentificare"):
+            login(input_user.strip(), input_pass.strip())
+    with col2:
+        if st.button("Intră ca vizitator"):
+            st.session_state.logged_in = True
+            st.session_state.username = "vizitator"
+            st.session_state.role = "Client"
+            st.session_state.is_admin = False
+            st.info("Ai intrat ca vizitator (client).")
+
+role = st.session_state.role
+is_admin = st.session_state.is_admin
+
+
+# ----------------- MENIU LATERAL -----------------
+
+if is_admin:
+    optiuni_meniu = [
+        "Vizualizare filme",
+        "Adaugă film manual",
+        "Sugestii filme",
+        "Șterge film",
+        "Vizualizare săli",
+        "Adaugă sală",
+        "Șterge sală",
+        "Creează rezervare",
+        "Anulează rezervare",
+        "Vizualizare rezervări",
+    ]
+else:
+    optiuni_meniu = [
+        "Vizualizare filme",
+        "Creează rezervare",
+        "Vizualizare rezervări",
+    ]
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📋 Meniu")
+meniu = st.sidebar.radio("Alege opțiunea:", optiuni_meniu)
+
+
+# ----------------- INFO ROL SUS -----------------
+
+st.info(
+    f"Ești autentificat ca: **{role}**"
+    f"{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
 )
 
 
-# ---------------- VIZUALIZARE FILME -------------------
+# ----------------- RUTARE CĂTRE PAGINI -----------------
+
 if meniu == "Vizualizare filme":
-    st.header("📽 Filme disponibile")
-    filme = incarca_filme()
+    pagina_vizualizare_filme()
 
-    if not filme:
-        st.info("Nu există filme înregistrate.")
-    else:
-        for f in filme:
-            st.subheader(f["titlu"])
-            st.write(f"Durata: {f['durata']} minute")
-            st.write(f"Sală: {f['sala_id']}")
-            st.write("---")
+elif meniu == "Adaugă film manual":
+    pagina_adauga_film_manual()
 
+elif meniu == "Sugestii filme":
+    pagina_sugestii_filme(is_admin=is_admin)
 
-# ---------------- ADAUGĂ FILM -------------------
-elif meniu == "Adaugă film":
-    st.header("➕ Adaugă film")
+elif meniu == "Șterge film":
+    pagina_sterge_film(is_admin=is_admin)
 
-    titlu = st.text_input("Titlu")
-    durata = st.number_input("Durata", min_value=1)
-    sala_id = st.number_input("ID Sala", min_value=1)
+elif meniu == "Vizualizare săli":
+    pagina_vizualizare_sali()
 
-    if st.button("Adaugă film"):
-        filme = incarca_filme()
-        new_id = len(filme) + 1
-        adauga_film(new_id, titlu, durata, sala_id)
-        st.success("Film adăugat cu succes!")
-
-
-# ---------------- ADAUGĂ SALĂ -------------------
 elif meniu == "Adaugă sală":
-    st.header("🏢 Adaugă sală")
+    pagina_adauga_sala(is_admin=is_admin)
 
-    nume = st.text_input("Numele sălii")
-    randuri = st.number_input("Număr de rânduri", min_value=1)
-    locuri_pe_rand = st.number_input("Locuri pe rând", min_value=1)
+elif meniu == "Șterge sală":
+    pagina_sterge_sala(is_admin=is_admin)
 
-    if st.button("Adaugă sală"):
-        sali = incarca_sali()
-        new_id = len(sali) + 1
-        adauga_sala(new_id, nume, randuri, locuri_pe_rand)
-        st.success("Sală adăugată!")
-
-
-# ---------------- CREEAZĂ REZERVARE -------------------
 elif meniu == "Creează rezervare":
-    st.header("🎟 Creează rezervare")
+    pagina_creeaza_rezervare()
 
-    film_id = st.number_input("ID Film", min_value=1)
-    sala_id = st.number_input("ID Sala", min_value=1)
-    rand = st.number_input("Rând", min_value=1)
-    loc = st.number_input("Loc", min_value=1)
-
-    if st.button("Rezervă"):
-        rezervare = creeaza_rezervare(film_id, sala_id, rand, loc)
-        st.success(f"Rezervarea a fost creată! ID: {rezervare['id_rezervare']}")
-
-
-# ---------------- ANULEAZĂ REZERVARE -------------------
 elif meniu == "Anulează rezervare":
-    st.header("❌ Anulează rezervare")
+    pagina_anuleaza_rezervare(is_admin=is_admin)
 
-    rezervari = incarca_rezervari()
-    if not rezervari:
-        st.info("Nu există rezervări.")
-    else:
-        id_list = [r["id_rezervare"] for r in rezervari]
-        rez_id = st.selectbox("Selectează ID rezervare", id_list)
-
-        if st.button("Anulează"):
-            sterge_rezervare(rez_id)
-            st.success("Rezervare anulată.")
+elif meniu == "Vizualizare rezervări":
+    pagina_vizualizare_rezervari()

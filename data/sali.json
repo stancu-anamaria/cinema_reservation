@@ -1,1 +1,8 @@
-[]
+[
+    {
+        "id_sala": 1,
+        "nume": "Sala 1",
+        "randuri": 13,
+        "locuri_pe_rand": 17
+    }
+]
