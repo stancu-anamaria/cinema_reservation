@@ -1,115 +1,97 @@
-import json
-import os
-
-DATA_DIR = "data"
-FILME_FILE = os.path.join(DATA_DIR, "filme.json")
-SALI_FILE = os.path.join(DATA_DIR, "sali.json")
-
-os.makedirs(DATA_DIR, exist_ok=True)
+from services.db import get_connection
 
 
 # -------------------- SĂLI -----------------------
 
+
 def incarca_sali():
-    """Încărcă lista de săli din fișierul JSON."""
-    try:
-        with open(SALI_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
+    """Returnează o listă de săli sub formă de dict-uri."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT id_sala, nume, randuri, locuri_pe_rand FROM sali ORDER BY id_sala;")
+    rows = cur.fetchall()
+    conn.close()
 
-
-def salveaza_sali(lista):
-    """Salvează lista de săli în fișierul JSON."""
-    with open(SALI_FILE, "w", encoding="utf-8") as f:
-        json.dump(lista, f, indent=4, ensure_ascii=False)
-
-
-def genereaza_id_sala():
-    """Generează un ID nou de sală (incremental)."""
-    sali = incarca_sali()
-    if not sali:
-        return 1
-    return int(sali[-1]["id_sala"]) + 1
+    return [
+        {
+            "id_sala": row["id_sala"],
+            "nume": row["nume"],
+            "randuri": row["randuri"],
+            "locuri_pe_rand": row["locuri_pe_rand"],
+        }
+        for row in rows
+    ]
 
 
 def adauga_sala(nume, randuri, locuri_pe_rand):
-    """Adaugă o sală nouă în sistem."""
-    sali = incarca_sali()
-    sala = {
-        "id_sala": genereaza_id_sala(),
+    """Adaugă o sală nouă și o întoarce ca dict."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sali (nume, randuri, locuri_pe_rand)
+        VALUES (?, ?, ?);
+        """,
+        (nume, int(randuri), int(locuri_pe_rand)),
+    )
+    conn.commit()
+    sala_id = cur.lastrowid
+    conn.close()
+
+    return {
+        "id_sala": sala_id,
         "nume": nume,
         "randuri": int(randuri),
-        "locuri_pe_rand": int(locuri_pe_rand)
+        "locuri_pe_rand": int(locuri_pe_rand),
     }
-    sali.append(sala)
-    salveaza_sali(sali)
-    return sala
 
 
 def sterge_sala(id_sala):
     """
-    Șterge o sală + toate filmele din sala respectivă + rezervările asociate.
-
-    - Scoate sala din sali.json
-    - Scoate toate filmele cu sala_id = id_sala din filme.json
-    - Scoate toate rezervările care au sala_id sau film_id din acele filme
+    Șterge o sală. Datorită foreign_keys ON DELETE CASCADE:
+      - se șterg automat și filmele din sală
+      - se șterg automat și rezervările din acele filme/sală
     """
-    from services.rezervari_service import incarca_rezervari, salveaza_rezervari
-
-    id_sala = int(id_sala)
-
-    # 1. Scoatem sala
-    sali = incarca_sali()
-    sali_noi = [s for s in sali if int(s["id_sala"]) != id_sala]
-    salveaza_sali(sali_noi)
-
-    # 2. Scoatem filmele din sala respectivă
-    filme = incarca_filme()
-    filme_noi = []
-    filme_ids_sterse = []
-    for f in filme:
-        if int(f["sala_id"]) == id_sala:
-            filme_ids_sterse.append(int(f["id_film"]))
-        else:
-            filme_noi.append(f)
-    salveaza_filme(filme_noi)
-
-    # 3. Scoatem rezervările legate de sala + filmele șterse
-    rezervari = incarca_rezervari()
-    rezervari_noi = []
-    for r in rezervari:
-        if int(r["sala_id"]) == id_sala:
-            continue
-        if int(r["film_id"]) in filme_ids_sterse:
-            continue
-        rezervari_noi.append(r)
-    salveaza_rezervari(rezervari_noi)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sali WHERE id_sala = ?;", (int(id_sala),))
+    conn.commit()
+    conn.close()
 
 
 # -------------------- FILME -----------------------
 
+
 def incarca_filme():
-    """Încărcă lista de filme din fișierul JSON."""
-    try:
-        with open(FILME_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
+    """Returnează lista de filme ca dict-uri."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id_film, titlu, durata, sala_id,
+               descriere, rated, poster, actori, genuri, tags
+        FROM filme
+        ORDER BY id_film;
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
 
-
-def salveaza_filme(lista):
-    """Salvează lista de filme în fișierul JSON."""
-    with open(FILME_FILE, "w", encoding="utf-8") as f:
-        json.dump(lista, f, indent=4, ensure_ascii=False)
-
-
-def genereaza_id_film():
-    """Generează un ID nou de film (incremental)."""
-    filme = incarca_filme()
-    if not filme:
-        return 1
-    return int(filme[-1]["id_film"]) + 1
+    return [
+        {
+            "id_film": row["id_film"],
+            "titlu": row["titlu"],
+            "durata": row["durata"],
+            "sala_id": row["sala_id"],
+            "descriere": row["descriere"],
+            "rated": row["rated"],
+            "poster": row["poster"],
+            "actori": row["actori"],
+            "genuri": row["genuri"],
+            "tags": row["tags"],
+        }
+        for row in rows
+    ]
 
 
 def adauga_film(
@@ -124,24 +106,37 @@ def adauga_film(
     tags=None,
 ):
     """
-    Adaugă film nou (din API sau manual).
-
-    câmpuri:
-      - titlu: titlul filmului (în română, pentru clienți)
-      - durata: minute
-      - sala_id: ID-ul sălii în care rulează
-      - descriere: descriere în română
-      - rated: clasificare vârstă (în română)
-      - poster: URL sau path local către poză
-      - actori: distribuție (string)
-      - genuri: genuri (string, în română)
-      - tags: etichete de tip „Tulburător, Creativ”
+    Adaugă film nou (manual sau bazat pe API) și-l întoarce ca dict.
     """
-    filme = incarca_filme()
-    new_id = genereaza_id_film()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO filme (
+            titlu, durata, sala_id,
+            descriere, rated, poster,
+            actori, genuri, tags
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """,
+        (
+            titlu,
+            int(durata),
+            int(sala_id),
+            descriere,
+            rated,
+            poster,
+            actori,
+            genuri,
+            tags,
+        ),
+    )
+    conn.commit()
+    id_film = cur.lastrowid
+    conn.close()
 
-    film = {
-        "id_film": new_id,
+    return {
+        "id_film": id_film,
         "titlu": titlu,
         "durata": int(durata),
         "sala_id": int(sala_id),
@@ -152,25 +147,15 @@ def adauga_film(
         "genuri": genuri,
         "tags": tags,
     }
-    filme.append(film)
-    salveaza_filme(filme)
-    return film
 
 
 def sterge_film(id_film):
     """
-    Șterge un film după id_film + toate rezervările lui.
+    Șterge un film. Datorită ON DELETE CASCADE:
+      - se șterg automat rezervările legate de acest film.
     """
-    from services.rezervari_service import incarca_rezervari, salveaza_rezervari
-
-    id_film = int(id_film)
-
-    # 1. scoatem filmul din filme.json
-    filme = incarca_filme()
-    filme_noi = [f for f in filme if int(f["id_film"]) != id_film]
-    salveaza_filme(filme_noi)
-
-    # 2. scoatem rezervările asociate din rezervari.json
-    rezervari = incarca_rezervari()
-    rezervari_noi = [r for r in rezervari if int(r["film_id"]) != id_film]
-    salveaza_rezervari(rezervari_noi)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM filme WHERE id_film = ?;", (int(id_film),))
+    conn.commit()
+    conn.close()
