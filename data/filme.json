@@ -10,5 +10,17 @@
         "actori": "Russell Crowe, Joaquin Phoenix, Connie Nielsen",
         "genuri": "Acțiune, Aventură, Dramă",
         "tags": "Tulburător, Alert, Plin de aventură"
+    },
+    {
+        "id_film": 2,
+        "titlu": "Fight Club",
+        "durata": 139,
+        "sala_id": 1,
+        "descriere": "gg",
+        "rated": "N-15 – interzis sub 15 ani neînsoțiți",
+        "poster": "https://m.media-amazon.com/images/M/MV5BOTgyOGQ1NDItNGU3Ny00MjU3LTg2YWEtNmEyYjBiMjI1Y2M5XkEyXkFqcGc@._V1_SX300.jpg",
+        "actori": "Edward Norton, Brad Pitt, Meat Loaf",
+        "genuri": "Crime, Dramă, Thriller",
+        "tags": "Tulburător, Tensionat"
     }
 ]
