@@ -1,64 +1,65 @@
-import json
-import os
-
-DATA_DIR = "data"
-DATAFILE = os.path.join(DATA_DIR, "rezervari.json")
-
-# asigură-te că folderul data există
-os.makedirs(DATA_DIR, exist_ok=True)
+from services.db import get_connection
 
 
 def incarca_rezervari():
-    try:
-        with open(DATAFILE, "r") as f:
-            return json.load(f)
-    except:
-        return []
+    """Returnează toate rezervările ca listă de dict-uri."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id_rezervare, film_id, sala_id, rand, loc
+        FROM rezervari
+        ORDER BY id_rezervare;
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
 
-
-def salveaza_rezervari(lista):
-    with open(DATAFILE, "w") as f:
-        json.dump(lista, f, indent=4)
+    return [
+        {
+            "id_rezervare": row["id_rezervare"],
+            "film_id": row["film_id"],
+            "sala_id": row["sala_id"],
+            "rand": row["rand"],
+            "loc": row["loc"],
+        }
+        for row in rows
+    ]
 
 
 def creeaza_rezervare(film_id, sala_id, rand, loc):
-    rezervari = incarca_rezervari()
+    """
+    Creează o rezervare (un singur loc, ca în implementarea ta actuală).
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO rezervari (film_id, sala_id, rand, loc)
+        VALUES (?, ?, ?, ?);
+        """,
+        (int(film_id), int(sala_id), int(rand), int(loc)),
+    )
+    conn.commit()
+    id_rezervare = cur.lastrowid
+    conn.close()
 
-    new_id = len(rezervari) + 1
-    rezervare = {
-        "id_rezervare": new_id,
-        "film_id": film_id,
-        "sala_id": sala_id,
-        "rand": rand,
-        "loc": loc
+    return {
+        "id_rezervare": id_rezervare,
+        "film_id": int(film_id),
+        "sala_id": int(sala_id),
+        "rand": int(rand),
+        "loc": int(loc),
     }
-    rezervari.append(rezervare)
-    salveaza_rezervari(rezervari)
-    return rezervare
 
 
 def sterge_rezervare(id_rezervare):
-    rezervari = incarca_rezervari()
-    rezervari = [r for r in rezervari if r["id_rezervare"] != id_rezervare]
-    salveaza_rezervari(rezervari)
-
-
-def sterge_rezervari_pentru_film(film_id):
-    """Șterge toate rezervările asociate unui film."""
-    rezervari = incarca_rezervari()
-    rezervari = [r for r in rezervari if r["film_id"] != film_id]
-    salveaza_rezervari(rezervari)
-
-
-def sterge_rezervari_pentru_sala(sala_id):
-    """Șterge toate rezervările asociate unei săli."""
-    rezervari = incarca_rezervari()
-    rezervari = [r for r in rezervari if r["sala_id"] != sala_id]
-    salveaza_rezervari(rezervari)
-
-
-def sterge_rezervari_pentru_filme_din_sala(lista_id_filme):
-    """Șterge toate rezervările pentru o listă de filme (de ex. când ștergi o sală)."""
-    rezervari = incarca_rezervari()
-    rezervari = [r for r in rezervari if r["film_id"] not in lista_id_filme]
-    salveaza_rezervari(rezervari)
+    """Șterge o rezervare după ID."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM rezervari WHERE id_rezervare = ?;",
+        (int(id_rezervare),),
+    )
+    conn.commit()
+    conn.close()
