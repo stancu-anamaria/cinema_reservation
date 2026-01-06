@@ -7,11 +7,13 @@ from services.admin_service import (
     incarca_filme,
     adauga_film,
     sterge_film,
+    incarca_sali,
 )
 from services.api_filme_service import cauta_film_in_api
 
 
 # ------------ funcții ajutătoare (filme, traduceri) ------------
+
 
 def film_exista_deja(titlu: str, sala_id: int) -> bool:
     filme = incarca_filme()
@@ -19,7 +21,10 @@ def film_exista_deja(titlu: str, sala_id: int) -> bool:
     sala_id = int(sala_id)
 
     for f in filme:
-        if f.get("titlu", "").strip().lower() == titlu_norm and int(f.get("sala_id", 0)) == sala_id:
+        if (
+            f.get("titlu", "").strip().lower() == titlu_norm
+            and int(f.get("sala_id", 0)) == sala_id
+        ):
             return True
     return False
 
@@ -108,10 +113,16 @@ def genereaza_tags_din_genuri(genuri_en: str | None) -> str | None:
 # ----------------- PAGINI -----------------
 
 
-def pagina_vizualizare_filme():
+def pagina_vizualizare_filme(is_admin: bool = False):
+    """
+    Listează filmele într-un layout frumos:
+      - clientul vede doar info utile
+      - adminul vede ID-urile în caption, discret
+    """
     st.header("🎥 Filme disponibile")
 
     filme = incarca_filme()
+    sali = {s["id_sala"]: s for s in incarca_sali()}
 
     if not filme:
         st.info("Nu există filme înregistrate încă.")
@@ -119,29 +130,46 @@ def pagina_vizualizare_filme():
 
     for f in filme:
         titlu = f.get("titlu", "Fără titlu")
-        durata = f.get("durata", "N/A")
-        sala_id = f.get("sala_id", "N/A")
-        descriere = f.get("descriere", None)
-        rated = f.get("rated", None)
-        poster = f.get("poster", None)
-        actori = f.get("actori", None)
-        genuri = f.get("genuri", None)
-        tags = f.get("tags", None)
+        durata = f.get("durata")
+        sala_id = f.get("sala_id")
+
+        sala = sali.get(sala_id)
+        if sala:
+            sala_nume = sala["nume"]
+        else:
+            sala_nume = f"Sală {sala_id}" if sala_id is not None else "Nespecificat"
+
+        descriere = f.get("descriere")
+        rated = f.get("rated")
+        poster = f.get("poster")
+        actori = f.get("actori")
+        genuri = f.get("genuri")
+        tags = f.get("tags")
 
         with st.container():
-            st.markdown(f"### 🎬 {titlu}")
-            col1, col2 = st.columns([1, 2])
+            # titlu mare
+            st.markdown(f"## 🎬 {titlu}")
 
-            with col1:
+            col_poster, col_info = st.columns([1, 2])
+
+            # poster
+            with col_poster:
                 if poster:
                     st.image(poster, use_container_width=True)
 
-            with col2:
-                st.write(f"🎫 **ID film:** {f.get('id_film', 'N/A')}")
-                st.write(f"⏱ **Durată:** {durata} minute")
-                st.write(f"🏢 **Sală ID:** {sala_id}")
-                if rated:
-                    st.write(f"🔞 **Clasificare vârstă:** {rated}")
+            # informații film
+            with col_info:
+                info_st, info_dr = st.columns(2)
+
+                with info_st:
+                    if durata:
+                        st.write(f"⏱ **Durată:** {durata} minute")
+                    st.write(f"🏢 **Sală:** {sala_nume}")
+
+                with info_dr:
+                    if rated:
+                        st.write(f"🔞 **Clasificare vârstă:** {rated}")
+
                 if actori:
                     st.write(f"**Distribuție:** {actori}")
                 if genuri:
@@ -152,13 +180,17 @@ def pagina_vizualizare_filme():
                     st.write("**Descriere:**")
                     st.write(descriere)
 
+                # info tehnică doar pentru admin
+                if is_admin:
+                    st.caption(
+                        f"(ID intern film: {f.get('id_film')} | ID intern sală: {sala_id})"
+                    )
+
         st.markdown("---")
 
 
 def pagina_adauga_film_manual():
     st.header("➕ Adaugă film manual")
-
-    from services.admin_service import incarca_sali
 
     sali = incarca_sali()
     if not sali:
@@ -171,7 +203,7 @@ def pagina_adauga_film_manual():
     opt_sala = st.selectbox(
         "Alege sala",
         options=sali,
-        format_func=lambda s: f"[{s['id_sala']}] {s['nume']}"
+        format_func=lambda s: f"[{s['id_sala']}] {s['nume']}",
     )
     sala_id = opt_sala["id_sala"]
 
@@ -184,7 +216,7 @@ def pagina_adauga_film_manual():
 
     poster_file = st.file_uploader(
         "Poster film (încarcă o imagine de pe calculator – opțional)",
-        type=["png", "jpg", "jpeg"]
+        type=["png", "jpg", "jpeg"],
     )
 
     if st.button("Adaugă film"):
@@ -228,8 +260,6 @@ def pagina_sugestii_filme(is_admin: bool):
     if not is_admin:
         st.error("Doar administratorul poate folosi sugestiile de filme.")
         return
-
-    from services.admin_service import incarca_sali
 
     sali = incarca_sali()
     if not sali:
@@ -303,7 +333,6 @@ def pagina_sugestii_filme(is_admin: bool):
         actori_en = data.get("Actors", "")
         genuri_en = data.get("Genre", "")
 
-        # valori propuse în română
         rated_ro_default = traduce_rated(rated_en) or ""
         genuri_ro_default = traduce_genuri(genuri_en) or ""
         tags_default = genereaza_tags_din_genuri(genuri_en) or ""
@@ -384,7 +413,9 @@ def pagina_sugestii_filme(is_admin: bool):
                         titlu=titlu_ro.strip(),
                         durata=int(durata_min) if durata_min > 0 else 0,
                         sala_id=int(sala_id),
-                        descriere=descriere_ro.strip() if descriere_ro.strip() else None,
+                        descriere=descriere_ro.strip()
+                        if descriere_ro.strip()
+                        else None,
                         rated=rated_ro.strip() if rated_ro.strip() else None,
                         poster=poster,
                         actori=actori_ro.strip() if actori_ro.strip() else None,
@@ -414,7 +445,7 @@ def pagina_sterge_film(is_admin: bool):
     opt_film = st.selectbox(
         "Alege filmul de șters",
         options=filme,
-        format_func=lambda f: f"[{f['id_film']}] {f['titlu']}"
+        format_func=lambda f: f"[{f['id_film']}] {f['titlu']}",
     )
 
     st.warning(

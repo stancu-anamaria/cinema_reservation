@@ -144,7 +144,7 @@ if meniu == "Vizualizare filme":
     pagina_vizualizare_filme()
 
 elif meniu == "Adaugă film manual":
-    pagina_adauga_film_manual()
+    pagina_adauga_film_manual(is_admin=is_admin)
 
 elif meniu == "Sugestii filme":
     pagina_sugestii_filme(is_admin=is_admin)
@@ -168,4 +168,4 @@ elif meniu == "Anulează rezervare":
     pagina_anuleaza_rezervare(is_admin=is_admin)
 
 elif meniu == "Vizualizare rezervări":
-    pagina_vizualizare_rezervari()
+    pagina_vizualizare_rezervari(is_admin=is_admin)
