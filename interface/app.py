@@ -189,7 +189,7 @@ def route(menu: str, is_admin: bool) -> None:
         pagina_anuleaza_rezervare(is_admin=is_admin)
 
     elif menu == "Vizualizare rezervări":
-        pagina_vizualizare_rezervari()
+        pagina_vizualizare_rezervari(is_admin=is_admin)
 
 
 def main() -> None:
