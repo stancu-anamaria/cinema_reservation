@@ -37,14 +37,41 @@ def _incarca_sala(sala_id: int) -> dict | None:
     }
 
 
+def curata_orfani_rezervari_locuri() -> int:
+    """
+    Șterge liniile din rezervari_locuri care nu mai au rezervare (header) existentă.
+    Returnează numărul de rânduri șterse.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        DELETE FROM rezervari_locuri
+        WHERE rezervare_id NOT IN (SELECT id_rezervare FROM rezervari);
+        """
+    )
+    sters = cur.rowcount
+
+    conn.commit()
+    conn.close()
+    return int(sters)
+
+
 def locuri_ocupate(film_id: int, sala_id: int) -> set[tuple[int, int]]:
+    """
+    IMPORTANT:
+    Numărăm doar locurile care aparțin unor rezervări existente (JOIN cu rezervari),
+    ca să nu mai “rămână roșii” locuri din cauza liniilor orfane.
+    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT rand, loc
-        FROM rezervari_locuri
-        WHERE film_id = ? AND sala_id = ?;
+        SELECT rl.rand, rl.loc
+        FROM rezervari_locuri rl
+        JOIN rezervari r ON r.id_rezervare = rl.rezervare_id
+        WHERE rl.film_id = ? AND rl.sala_id = ?;
         """,
         (int(film_id), int(sala_id)),
     )
@@ -57,7 +84,8 @@ def locuri_ocupate(film_id: int, sala_id: int) -> set[tuple[int, int]]:
 def incarca_rezervari(username: str | None, is_admin: bool) -> list[dict]:
     """
     - admin vede toate rezervările
-    - user vede doar rezervările lui
+    - clientul nu vede “vizualizare rezervări” (vei scoate din meniu),
+      dar dacă tot ajunge aici, îi întoarcem doar ale lui.
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -65,7 +93,7 @@ def incarca_rezervari(username: str | None, is_admin: bool) -> list[dict]:
     if is_admin:
         cur.execute(
             """
-            SELECT id_rezervare, film_id, sala_id, username, created_at
+            SELECT id_rezervare, film_id, sala_id, username, created_at, nume_client, telefon
             FROM rezervari
             ORDER BY id_rezervare DESC;
             """
@@ -74,7 +102,7 @@ def incarca_rezervari(username: str | None, is_admin: bool) -> list[dict]:
     else:
         cur.execute(
             """
-            SELECT id_rezervare, film_id, sala_id, username, created_at
+            SELECT id_rezervare, film_id, sala_id, username, created_at, nume_client, telefon
             FROM rezervari
             WHERE username = ?
             ORDER BY id_rezervare DESC;
@@ -114,6 +142,8 @@ def incarca_rezervari(username: str | None, is_admin: bool) -> list[dict]:
                 "sala_id": int(r["sala_id"]),
                 "username": r["username"],
                 "created_at": r["created_at"],
+                "nume_client": r["nume_client"],
+                "telefon": r["telefon"],
                 "locuri": locuri,
                 "total": float(total),
             }
@@ -129,9 +159,16 @@ def creeaza_rezervare_multi(
     locuri_selectate: list[tuple[int, int]],
     tip_bilet_per_loc: dict[tuple[int, int], str],
     username: str,
-):
+    nume_client: str,
+    telefon: str,
+) -> int:
     if not username or not str(username).strip():
         raise ValueError("Trebuie să fii autentificat ca să faci o rezervare.")
+
+    if not (nume_client or "").strip():
+        raise ValueError("Te rog să introduci numele pentru rezervare.")
+    if not (telefon or "").strip():
+        raise ValueError("Te rog să introduci numărul de telefon.")
 
     if not locuri_selectate:
         raise ValueError("Nu ai selectat niciun loc.")
@@ -144,7 +181,6 @@ def creeaza_rezervare_multi(
     locuri_pe_rand = int(sala["locuri_pe_rand"])
     preturi = incarca_preturi_bilete()
 
-    # validare coordonate + tip bilet
     for (rand, loc) in locuri_selectate:
         if int(rand) < 1 or int(rand) > randuri:
             raise ValueError(f"Rând invalid: {rand}")
@@ -169,12 +205,11 @@ def creeaza_rezervare_multi(
         # header
         cur.execute(
             """
-            INSERT INTO rezervari (film_id, sala_id, username)
-            VALUES (?, ?, ?);
+            INSERT INTO rezervari (film_id, sala_id, username, nume_client, telefon)
+            VALUES (?, ?, ?, ?, ?);
             """,
-            (int(film_id), int(sala_id), str(username)),
+            (int(film_id), int(sala_id), str(username), nume_client.strip(), telefon.strip()),
         )
-        conn.commit()
         id_rezervare = int(cur.lastrowid)
 
         # detalii
@@ -192,6 +227,7 @@ def creeaza_rezervare_multi(
             )
 
         conn.commit()
+        return id_rezervare
 
     except Exception:
         conn.rollback()
@@ -199,12 +235,37 @@ def creeaza_rezervare_multi(
     finally:
         conn.close()
 
-    return id_rezervare
 
-
-def sterge_rezervare(id_rezervare: int):
+def sterge_rezervare(id_rezervare: int) -> None:
+    """
+    FIX IMPORTANT:
+    Ștergem EXPLICIT și din rezervari_locuri.
+    Astfel locurile nu mai rămân roșii indiferent ce FK/cascade ai în DB.
+    """
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM rezervari WHERE id_rezervare = ?;", (int(id_rezervare),))
-    conn.commit()
-    conn.close()
+
+    try:
+        cur.execute(
+            "DELETE FROM rezervari_locuri WHERE rezervare_id = ?;",
+            (int(id_rezervare),),
+        )
+        cur.execute(
+            "DELETE FROM rezervari WHERE id_rezervare = ?;",
+            (int(id_rezervare),),
+        )
+
+        # curățăm și orice orfani (siguranță)
+        cur.execute(
+            """
+            DELETE FROM rezervari_locuri
+            WHERE rezervare_id NOT IN (SELECT id_rezervare FROM rezervari);
+            """
+        )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

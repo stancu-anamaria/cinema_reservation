@@ -22,6 +22,14 @@ def _exista_tabela(cur, nume_tabela: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _exista_index(cur, nume_index: str) -> bool:
+    cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name=?;",
+        (nume_index,),
+    )
+    return cur.fetchone() is not None
+
+
 def _coloane_tabela(cur, nume_tabela: str) -> set[str]:
     cur.execute(f"PRAGMA table_info({nume_tabela});")
     return {row["name"] for row in cur.fetchall()}
@@ -31,7 +39,28 @@ def _drop_table_if_exists(cur, nume_tabela: str):
     cur.execute(f"DROP TABLE IF EXISTS {nume_tabela};")
 
 
-def _creeaza_schema_noua(cur):
+def _asigura_coloane_rezervari(cur):
+    """
+    Dacă baza există deja, CREATE TABLE IF NOT EXISTS nu adaugă coloane noi.
+    Așa că folosim ALTER TABLE ADD COLUMN când lipsește ceva.
+    """
+    if not _exista_tabela(cur, "rezervari"):
+        return
+
+    cols = _coloane_tabela(cur, "rezervari")
+
+    if "nume_client" not in cols:
+        cur.execute("ALTER TABLE rezervari ADD COLUMN nume_client TEXT;")
+    if "telefon" not in cols:
+        cur.execute("ALTER TABLE rezervari ADD COLUMN telefon TEXT;")
+    if "created_at" not in cols:
+        cur.execute("ALTER TABLE rezervari ADD COLUMN created_at TEXT DEFAULT (datetime('now'));")
+    if "username" not in cols:
+        # rar, dar ca safety
+        cur.execute("ALTER TABLE rezervari ADD COLUMN username TEXT NOT NULL DEFAULT 'unknown';")
+
+
+def _creeaza_schema(cur):
     # sali
     cur.execute(
         """
@@ -65,7 +94,7 @@ def _creeaza_schema_noua(cur):
         """
     )
 
-    # rezervari (header)
+    # rezervari (header) - schema nouă
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS rezervari (
@@ -74,6 +103,8 @@ def _creeaza_schema_noua(cur):
             sala_id      INTEGER NOT NULL,
             username     TEXT NOT NULL,
             created_at   TEXT DEFAULT (datetime('now')),
+            nume_client  TEXT,
+            telefon      TEXT,
             FOREIGN KEY (film_id)
                 REFERENCES filme(id_film)
                 ON DELETE CASCADE,
@@ -109,17 +140,24 @@ def _creeaza_schema_noua(cur):
 
             FOREIGN KEY (sala_id)
                 REFERENCES sali(id_sala)
-                ON DELETE CASCADE,
-
-            UNIQUE (film_id, sala_id, rand, loc)
+                ON DELETE CASCADE
         );
         """
     )
 
+    # Unique: un loc nu poate fi rezervat de 2 ori la același film/sală
+    if not _exista_index(cur, "uq_loc_film_sala"):
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX uq_loc_film_sala
+            ON rezervari_locuri (film_id, sala_id, rand, loc);
+            """
+        )
+
 
 def _este_schema_veche_rezervari(cur) -> bool:
     """
-    Schema veche: rezervari are coloane rand/loc.
+    Schema veche: rezervari are coloane rand/loc direct în rezervari.
     """
     if not _exista_tabela(cur, "rezervari"):
         return False
@@ -127,70 +165,48 @@ def _este_schema_veche_rezervari(cur) -> bool:
     return ("rand" in cols) and ("loc" in cols)
 
 
-def _curata_leftovers_migrare(cur):
+def _migrare_soft_din_schema_veche(cur):
     """
-    Dacă a crăpat o migrare înainte, pot rămâne tabele *_new.
-    Le ștergem ca să nu ne încurce.
+    Migrare SAFE (fără drop/rename):
+    - dacă există rand/loc în rezervari, copiem acele locuri în rezervari_locuri
+    - nu ștergem nimic, nu redenumim nimic
+    - folosim INSERT OR IGNORE ca să fie idempotent
     """
-    _drop_table_if_exists(cur, "rezervari_new")
-    _drop_table_if_exists(cur, "rezervari_locuri_new")
-
-
-def _migrare_din_schema_veche(cur):
-    """
-    Migrează:
-      rezervari vechi -> rezervari (header) + rezervari_locuri (detalii)
-
-    IMPORTANT:
-    - dacă rezervari_locuri există deja (din încercări anterioare), NU mai migrăm iar,
-      ca să evităm duplicate/conflicte.
-    """
-    # dacă deja există tabelul nou cu detalii, considerăm că migrarea a fost făcută/începută
-    if _exista_tabela(cur, "rezervari_locuri"):
-        # dacă totuși rezervari e încă vechi, cea mai safe e să OPRIM și să cerem reset.
-        # Dar putem fi pragmatic: doar nu mai facem rename-uri care crapă.
+    # dacă nu e schema veche, nimic de făcut
+    if not _este_schema_veche_rezervari(cur):
         return
 
-    # curățăm leftovers
-    _curata_leftovers_migrare(cur)
-
-    # tabele noi temporare
+    # ne asigurăm că există tabelul nou de detalii
     cur.execute(
         """
-        CREATE TABLE rezervari_new (
-            id_rezervare INTEGER PRIMARY KEY AUTOINCREMENT,
-            film_id      INTEGER NOT NULL,
-            sala_id      INTEGER NOT NULL,
-            username     TEXT NOT NULL,
-            created_at   TEXT DEFAULT (datetime('now'))
-        );
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE rezervari_locuri_new (
+        CREATE TABLE IF NOT EXISTS rezervari_locuri (
             id_linie      INTEGER PRIMARY KEY AUTOINCREMENT,
             rezervare_id  INTEGER NOT NULL,
-
             film_id       INTEGER NOT NULL,
             sala_id       INTEGER NOT NULL,
             rand          INTEGER NOT NULL,
             loc           INTEGER NOT NULL,
-
             tip_bilet     TEXT NOT NULL,
-            pret          REAL NOT NULL,
-
-            UNIQUE (film_id, sala_id, rand, loc)
+            pret          REAL NOT NULL
         );
         """
     )
 
-    # citim rezervări vechi
+    # asigurăm unique index (dacă lipsește)
+    if not _exista_index(cur, "uq_loc_film_sala"):
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX uq_loc_film_sala
+            ON rezervari_locuri (film_id, sala_id, rand, loc);
+            """
+        )
+
+    # copiem
     cur.execute(
         """
         SELECT id_rezervare, film_id, sala_id, rand, loc
         FROM rezervari
+        WHERE rand IS NOT NULL AND loc IS NOT NULL
         ORDER BY id_rezervare;
         """
     )
@@ -203,84 +219,38 @@ def _migrare_din_schema_veche(cur):
         rand = int(r["rand"])
         loc = int(r["loc"])
 
-        # header (păstrăm id)
         cur.execute(
             """
-            INSERT INTO rezervari_new (id_rezervare, film_id, sala_id, username, created_at)
-            VALUES (?, ?, ?, ?, datetime('now'));
-            """,
-            (id_rez, film_id, sala_id, "migrat"),
-        )
-
-        # detaliu (1 loc)
-        cur.execute(
-            """
-            INSERT OR IGNORE INTO rezervari_locuri_new
+            INSERT OR IGNORE INTO rezervari_locuri
                 (rezervare_id, film_id, sala_id, rand, loc, tip_bilet, pret)
             VALUES (?, ?, ?, ?, ?, ?, ?);
             """,
             (id_rez, film_id, sala_id, rand, loc, "Adult", 35.0),
         )
 
-    # DROP vechi, rename noi
-    cur.execute("DROP TABLE rezervari;")
-    cur.execute("ALTER TABLE rezervari_new RENAME TO rezervari;")
-    cur.execute("ALTER TABLE rezervari_locuri_new RENAME TO rezervari_locuri;")
-
 
 def init_db():
-    # folosim conexiune separată (fără foreign keys) ca să fie migrarea safe
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # dezactivează FK temporar
+    # în migrare lucrăm fără FK ca să fie stabil
     conn.execute("PRAGMA foreign_keys = OFF;")
     conn.commit()
 
-    # asigură sali/filme măcar
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sali (
-            id_sala        INTEGER PRIMARY KEY AUTOINCREMENT,
-            nume           TEXT NOT NULL,
-            randuri        INTEGER NOT NULL,
-            locuri_pe_rand INTEGER NOT NULL
-        );
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS filme (
-            id_film   INTEGER PRIMARY KEY AUTOINCREMENT,
-            titlu     TEXT NOT NULL,
-            durata    INTEGER NOT NULL,
-            sala_id   INTEGER NOT NULL,
-            descriere TEXT,
-            rated     TEXT,
-            poster    TEXT,
-            actori    TEXT,
-            genuri    TEXT,
-            tags      TEXT
-        );
-        """
-    )
+    # 1) creăm schema (tables + index)
+    _creeaza_schema(cur)
     conn.commit()
 
-    # migrare doar dacă rezervari e vechi și NU există deja rezervari_locuri
-    if _este_schema_veche_rezervari(cur) and not _exista_tabela(cur, "rezervari_locuri"):
-        _migrare_din_schema_veche(cur)
-        conn.commit()
-
-    # creează schema nouă (safe)
-    _creeaza_schema_noua(cur)
+    # 2) dacă baza era veche, facem migrare soft (copiere în rezervari_locuri)
+    _migrare_soft_din_schema_veche(cur)
     conn.commit()
 
-    # curățăm leftovers dacă au rămas
-    _curata_leftovers_migrare(cur)
+    # 3) dacă rezervari exista deja, dar îi lipsesc coloane noi, le adăugăm
+    _asigura_coloane_rezervari(cur)
     conn.commit()
 
-    # reactivează FK
+    # activăm FK la final
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.commit()
     conn.close()

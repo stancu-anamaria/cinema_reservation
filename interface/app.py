@@ -1,4 +1,3 @@
-# path: app.py
 from __future__ import annotations
 
 import streamlit as st
@@ -34,15 +33,15 @@ def _init_state() -> None:
     st.session_state.setdefault("role", "Client")
     st.session_state.setdefault("is_admin", False)
 
-    # navigare/filtre
+    # pt meniu (păstrăm selecția la rerun)
     st.session_state.setdefault("menu_choice", None)
-    st.session_state.setdefault("filme_filter_sala_id", None)
 
 
 def login(username: str, password: str) -> None:
     user = (username or "").strip()
     pwd = (password or "").strip()
 
+    # admin
     if user == "admin" and pwd == "admin123":
         st.session_state.logged_in = True
         st.session_state.username = user
@@ -52,6 +51,7 @@ def login(username: str, password: str) -> None:
         st.success("Te-ai autentificat ca administrator.")
         _rerun()
 
+    # client
     if user and pwd:
         st.session_state.logged_in = True
         st.session_state.username = user
@@ -78,13 +78,12 @@ def logout() -> None:
     st.session_state.role = "Client"
     st.session_state.is_admin = False
     st.session_state.menu_choice = None
-    st.session_state.filme_filter_sala_id = None
     _rerun()
 
 
 def render_login_screen() -> None:
     st.title("🎬 Sistem de Rezervare Cinema")
-    st.write("Autentifică-te ca să accesezi meniul aplicației.")
+    st.write("Autentifică-te ca să accesezi aplicația.")
 
     with st.container(border=True):
         st.subheader("🔐 Autentificare")
@@ -94,21 +93,20 @@ def render_login_screen() -> None:
             password = st.text_input("Parolă", type="password")
             submitted = st.form_submit_button("Autentificare")
 
-        cols = st.columns(2)
-        with cols[0]:
+        col1, col2 = st.columns(2)
+        with col1:
             if submitted:
                 login(username, password)
-        with cols[1]:
+        with col2:
             if st.button("Intră ca vizitator"):
                 login_as_guest()
 
 
-
-
 def render_sidebar(is_admin: bool) -> str:
     st.sidebar.markdown("## 👤 Profil")
-    st.sidebar.markdown(f"**Utilizator:** `{st.session_state.username}`")
-    st.sidebar.markdown(f"**Rol:** `{st.session_state.role}`")
+
+    st.sidebar.write(f"**Utilizator:** `{st.session_state.username}`")
+    st.sidebar.write(f"**Rol:** `{st.session_state.role}`")
 
     if is_admin:
         st.sidebar.success("✅ Administrator")
@@ -121,6 +119,7 @@ def render_sidebar(is_admin: bool) -> str:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📋 Meniu")
 
+    # IMPORTANT: clientul NU vede vizualizare rezervări
     if is_admin:
         optiuni = [
             "Vizualizare filme",
@@ -139,7 +138,6 @@ def render_sidebar(is_admin: bool) -> str:
             "Vizualizare filme",
             "Vizualizare săli",
             "Creează rezervare",
-            "Vizualizare rezervări",
         ]
 
     default = st.session_state.menu_choice or optiuni[0]
@@ -156,15 +154,25 @@ def render_sidebar(is_admin: bool) -> str:
 
 
 def route(menu: str, is_admin: bool) -> None:
+    st.title("🎬 Sistem de Rezervare Cinema")
+
     st.info(
         f"Ești autentificat ca: **{st.session_state.role}**"
         f"{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
     )
 
     if menu == "Vizualizare filme":
-        pagina_vizualizare_filme()
+        # dacă funcția acceptă is_admin, îi dăm; dacă nu, mergem fără
+        try:
+            pagina_vizualizare_filme(is_admin=is_admin)
+        except TypeError:
+            pagina_vizualizare_filme()
 
     elif menu == "Adaugă film manual":
+        # opțiunea e doar la admin, dar dacă ajunge cineva aici, tot nu crăpăm
+        if not is_admin:
+            st.error("Doar administratorul poate adăuga filme manual.")
+            return
         pagina_adauga_film_manual()
 
     elif menu == "Sugestii filme":
