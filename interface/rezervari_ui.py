@@ -17,7 +17,7 @@ def _gaseste_sala(sali: list[dict], sala_id: int) -> dict | None:
     return None
 
 
-def _init_state():
+def _init_state() -> None:
     if "locuri_selectate" not in st.session_state:
         st.session_state["locuri_selectate"] = set()
     if "tip_bilet_per_loc" not in st.session_state:
@@ -46,17 +46,16 @@ def _taie_selectia_la_n(n: int) -> bool:
     return True
 
 
-def _toggle_loc_si_rerun(rand: int, loc: int, max_locuri: int):
+def _toggle_loc_si_rerun(rand: int, loc: int, max_locuri: int) -> None:
     """
-    Toggle loc + rerun imediat => UI nu mai rămâne "în urmă" (fix bug).
+    Toggle loc + rerun imediat => UI nu mai rămâne "în urmă".
     """
     coord = (int(rand), int(loc))
-    selectate = st.session_state["locuri_selectate"]
+    selectate: set[tuple[int, int]] = st.session_state["locuri_selectate"]
 
     if coord in selectate:
         selectate.remove(coord)
-        if coord in st.session_state["tip_bilet_per_loc"]:
-            del st.session_state["tip_bilet_per_loc"][coord]
+        st.session_state["tip_bilet_per_loc"].pop(coord, None)
         st.rerun()
 
     if len(selectate) >= int(max_locuri):
@@ -68,13 +67,17 @@ def _toggle_loc_si_rerun(rand: int, loc: int, max_locuri: int):
     st.rerun()
 
 
-def _deseneaza_harta_locuri_cu_culoar_gol(sala: dict, ocupate: set[tuple[int, int]], max_locuri: int):
+def _deseneaza_harta_locuri_cu_culoar_gol(
+    sala: dict,
+    ocupate: set[tuple[int, int]],
+    max_locuri: int,
+) -> None:
     st.markdown("### 🗺️ Alege-ți locurile")
     st.caption("Legendă: 🟩 liber | 🟥 ocupat | ⭐ selectat | (spațiu) culoar")
 
     randuri = int(sala["randuri"])
     locuri_pe_rand = int(sala["locuri_pe_rand"])
-    selectate = st.session_state["locuri_selectate"]
+    selectate: set[tuple[int, int]] = st.session_state["locuri_selectate"]
 
     st.markdown("#### 🎞️ ECRAN")
     st.markdown("---")
@@ -92,10 +95,7 @@ def _deseneaza_harta_locuri_cu_culoar_gol(sala: dict, ocupate: set[tuple[int, in
             cols = st.columns(numar_coloane)
 
             for l in range(1, locuri_pe_rand + 1):
-                if l > index_culoar_dupa:
-                    idx_col = l
-                else:
-                    idx_col = l - 1
+                idx_col = l if l > index_culoar_dupa else l - 1
 
                 e_ocupat = (r, l) in ocupate
                 e_selectat = (r, l) in selectate
@@ -108,7 +108,6 @@ def _deseneaza_harta_locuri_cu_culoar_gol(sala: dict, ocupate: set[tuple[int, in
                     if cols[idx_col].button(simbol, key=f"seat_{r}_{l}"):
                         _toggle_loc_si_rerun(r, l, int(max_locuri))
 
-            # culoar gol
             idx_culoar = index_culoar_dupa
             cols[idx_culoar].markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
 
@@ -121,11 +120,10 @@ def _calculeaza_total(preturi: dict[str, float]) -> float:
     return float(total)
 
 
-def pagina_creeaza_rezervare():
+def pagina_creeaza_rezervare() -> None:
     _init_state()
     st.header("🎟 Rezervare bilete")
 
-    # doar logat
     if not st.session_state.get("logged_in", False):
         st.warning("Trebuie să te autentifici ca să poți face o rezervare.")
         return
@@ -166,17 +164,21 @@ def pagina_creeaza_rezervare():
         f"Locuri libere: **{libere}** / {total_locuri}"
     )
 
-    # număr bilete (cu key stabil)
+    # IMPORTANT: clamp înainte de widget ca să nu iasă din bounds
+    max_bilete = max(1, libere)
+    st.session_state["numar_locuri_dorite"] = int(
+        min(max(1, int(st.session_state["numar_locuri_dorite"])), max_bilete)
+    )
+
+    # FIX warning: NU mai folosim value= când avem key + session_state
     numar_bilete = st.number_input(
         "🎫 Câte locuri vrei să rezervi?",
         min_value=1,
-        max_value=max(1, libere),
+        max_value=max_bilete,
         step=1,
-        value=int(st.session_state["numar_locuri_dorite"]),
         key="numar_locuri_dorite",
     )
 
-    # dacă user a scăzut, tăiem selecția și dăm rerun
     if _taie_selectia_la_n(int(numar_bilete)):
         st.rerun()
 
@@ -211,7 +213,10 @@ def pagina_creeaza_rezervare():
     st.markdown("### 🎟 Tip bilet pe fiecare loc")
     for (r, l) in locuri_selectate:
         key_tip = f"tip_{r}_{l}"
-        tip_curent = st.session_state["tip_bilet_per_loc"].get((r, l), st.session_state["tip_bilet_default"])
+        tip_curent = st.session_state["tip_bilet_per_loc"].get(
+            (r, l),
+            st.session_state["tip_bilet_default"],
+        )
 
         tip_nou = st.selectbox(
             f"R{r} L{l}",
@@ -247,7 +252,9 @@ def pagina_creeaza_rezervare():
             )
 
             st.success(f"Rezervarea a fost creată cu succes! (ID: {id_rez}) ✅")
-            st.info("Recomandare: vino cu **cel puțin 30 de minute mai devreme** ca să ridici și să plătești biletele la casierie.")
+            st.info(
+                "Recomandare: vino cu **cel puțin 30 de minute mai devreme** ca să ridici și să plătești biletele la casierie."
+            )
 
             st.session_state["locuri_selectate"] = set()
             st.session_state["tip_bilet_per_loc"] = {}
@@ -257,7 +264,7 @@ def pagina_creeaza_rezervare():
             st.error(str(e))
 
 
-def pagina_anuleaza_rezervare(is_admin: bool):
+def pagina_anuleaza_rezervare(is_admin: bool) -> None:
     st.header("❌ Anulează rezervare")
 
     if not is_admin:
@@ -281,7 +288,7 @@ def pagina_anuleaza_rezervare(is_admin: bool):
         st.rerun()
 
 
-def pagina_vizualizare_rezervari(is_admin: bool):
+def pagina_vizualizare_rezervari(is_admin: bool) -> None:
     st.header("📋 Biletele mele")
 
     if not st.session_state.get("logged_in", False):
