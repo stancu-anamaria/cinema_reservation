@@ -65,14 +65,14 @@ def _inject_login_background(image_path: Path | None = None) -> None:
         bg_css = f'url("data:image/{mime};base64,{b64}")'
     else:
         bg_css = "none"
-
+    overlay=0.40
     st.markdown(
         f"""
         <style>
           /* Main app background */
           div[data-testid="stAppViewContainer"] {{
             background:
-              linear-gradient(180deg, rgba(8,10,14,0.92), rgba(8,10,14,0.92)),
+              linear-gradient(180deg, rgba(8,10,14,{overlay}), rgba(8,10,14,{overlay})),
               {bg_css};
             background-size: cover;
             background-position: center;
