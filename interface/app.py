@@ -65,7 +65,7 @@ def _inject_login_background(image_path: Path | None = None) -> None:
         bg_css = f'url("data:image/{mime};base64,{b64}")'
     else:
         bg_css = "none"
-    overlay=0.40
+    overlay=0.80
     st.markdown(
         f"""
         <style>
