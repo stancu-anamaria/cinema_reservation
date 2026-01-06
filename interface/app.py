@@ -22,7 +22,7 @@ from interface.rezervari_ui import (
     pagina_vizualizare_rezervari,
 )
 
-LOGIN_BG_PATH = Path("assets/login_bg.jpg")  # pune aici o imagine (jpg/png)
+LOGIN_BG_PATH = Path("assets/login_bg.jpg")  # optional
 
 
 def _rerun() -> None:
@@ -51,11 +51,7 @@ def _apply_pending_navigation() -> None:
         st.session_state["navigate_to"] = None
 
 
-def _inject_login_background(image_path: Path | None = None) -> None:
-    """
-    Sets a nice login background. If image_path exists, uses it as base64 data URL.
-    Fallback: gradient only.
-    """
+def _inject_global_style(image_path: Path | None = None) -> None:
     bg_css = ""
     if image_path and image_path.exists():
         raw = image_path.read_bytes()
@@ -65,29 +61,137 @@ def _inject_login_background(image_path: Path | None = None) -> None:
         bg_css = f'url("data:image/{mime};base64,{b64}")'
     else:
         bg_css = "none"
-    overlay=0.80
+
     st.markdown(
         f"""
         <style>
-          /* Main app background */
+          /* Hide Streamlit default menu/footer */
+          #MainMenu {{visibility:hidden;}}
+          footer {{visibility:hidden;}}
+          header[data-testid="stHeader"] {{background: transparent;}}
+
+          /* App background */
           div[data-testid="stAppViewContainer"] {{
             background:
-              linear-gradient(180deg, rgba(8,10,14,{overlay}), rgba(8,10,14,{overlay})),
+              radial-gradient(1200px 800px at 20% 10%, rgba(90, 70, 255, 0.28), rgba(0,0,0,0) 55%),
+              radial-gradient(900px 600px at 80% 0%, rgba(255, 80, 120, 0.18), rgba(0,0,0,0) 60%),
+              linear-gradient(180deg, rgba(10, 12, 20, 0.80), rgba(10, 12, 20, 0.92)),
               {bg_css};
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
           }}
 
-          /* Make header transparent for nicer look */
-          header[data-testid="stHeader"] {{
-            background: transparent;
+          /* Wider overall content a bit nicer */
+          section.main > div {{
+            max-width: 1100px;
+            padding-top: 1.2rem;
           }}
 
-          /* Slightly center + max width for login card */
-          .cc-login-wrap {{
-            max-width: 920px;
-            margin: 0 auto;
+          /* Login layout: center vertically */
+          .cc-login-page {{
+            min-height: calc(100vh - 6rem);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }}
+
+          .cc-login-grid {{
+            width: 100%;
+            max-width: 980px;
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 22px;
+          }}
+
+          /* Left hero */
+          .cc-hero {{
+            padding: 28px 28px;
+            border-radius: 22px;
+            border: 1px solid rgba(255,255,255,0.10);
+            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+            backdrop-filter: blur(10px);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+          }}
+
+          .cc-hero h1 {{
+            margin: 0;
+            font-size: 44px;
+            line-height: 1.05;
+            letter-spacing: -0.02em;
+            color: rgba(255,255,255,0.95);
+          }}
+
+          .cc-hero p {{
+            margin: 12px 0 0 0;
+            font-size: 16px;
+            color: rgba(255,255,255,0.70);
+          }}
+
+          .cc-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.85);
+            font-size: 13px;
+            margin-top: 16px;
+          }}
+
+          /* Right login card */
+          .cc-card {{
+            padding: 22px 20px;
+            border-radius: 22px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(15, 17, 26, 0.55);
+            backdrop-filter: blur(14px);
+            box-shadow: 0 18px 55px rgba(0,0,0,0.38);
+          }}
+
+          .cc-card h2 {{
+            margin: 0 0 8px 0;
+            font-size: 20px;
+            color: rgba(255,255,255,0.92);
+          }}
+
+          .cc-card small {{
+            color: rgba(255,255,255,0.65);
+          }}
+
+          /* Make Streamlit inputs nicer */
+          div[data-testid="stTextInput"] > div {{
+            border-radius: 14px;
+          }}
+
+          /* Buttons nicer */
+          .stButton > button {{
+            border-radius: 14px !important;
+            padding: 0.60rem 0.9rem !important;
+            border: 1px solid rgba(255,255,255,0.14) !important;
+          }}
+
+          /* Primary button */
+          div[data-testid="stFormSubmitButton"] button {{
+            background: linear-gradient(90deg, rgba(90,70,255,1), rgba(255,80,120,1)) !important;
+            color: white !important;
+            border: none !important;
+            font-weight: 650 !important;
+          }}
+
+          /* Sidebar styling */
+          section[data-testid="stSidebar"] > div {{
+            background: linear-gradient(180deg, rgba(15,17,26,0.92), rgba(15,17,26,0.80));
+            border-right: 1px solid rgba(255,255,255,0.08);
+          }}
+
+          /* Responsive */
+          @media (max-width: 900px) {{
+            .cc-login-grid {{
+              grid-template-columns: 1fr;
+            }}
           }}
         </style>
         """,
@@ -108,6 +212,7 @@ def login(username: str, password: str) -> None:
         st.session_state.navigate_to = None
         st.success("Te-ai autentificat ca administrator.")
         _rerun()
+        return
 
     if user and pwd:
         st.session_state.logged_in = True
@@ -143,29 +248,55 @@ def logout() -> None:
 
 
 def render_login_screen() -> None:
-    _inject_login_background(LOGIN_BG_PATH)
+    _inject_global_style(LOGIN_BG_PATH)
 
-    st.markdown('<div class="cc-login-wrap">', unsafe_allow_html=True)
-    st.title("🎬 Sistem de Rezervare Cinema")
-    st.write("Autentifică-te ca să accesezi meniul aplicației.")
+    st.markdown('<div class="cc-login-page">', unsafe_allow_html=True)
+    st.markdown('<div class="cc-login-grid">', unsafe_allow_html=True)
 
-    with st.container(border=True):
-        st.subheader("🔐 Autentificare")
+    # HERO (stânga)
+    st.markdown(
+        """
+        <div class="cc-hero">
+          <div class="cc-pill">🎬 <b>Cinema Reservation</b> · Rapid · Simplu · Modern</div>
+          <h1>Sistem de Rezervare<br/>Cinema</h1>
+          <p>
+            Alege filmul, selectează locurile preferate și vezi biletele în contul tău.
+            Plata se face la casierie.
+          </p>
+          <div class="cc-pill">⭐ Recomandare: vino cu cel puțin <b>30 min</b> mai devreme</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        with st.form("login_form"):
-            username = st.text_input("Nume utilizator", placeholder="Numele tău")
-            password = st.text_input("Parolă", type="password", placeholder="Parola ta")
-            submitted = st.form_submit_button("Autentificare")
+    # CARD (dreapta)
+    st.markdown('<div class="cc-card">', unsafe_allow_html=True)
+    st.markdown("<h2>🔐 Autentificare</h2><small>Intră cu contul tău sau ca vizitator.</small>", unsafe_allow_html=True)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
-        cols = st.columns(2)
-        with cols[0]:
-            if submitted:
-                login(username, password)
-        with cols[1]:
-            if st.button("Intră ca vizitator"):
-                login_as_guest()
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Nume utilizator", placeholder="ex: andrei.popescu")
+        password = st.text_input("Parolă", type="password", placeholder="parola ta")
+        submitted = st.form_submit_button("Autentificare")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if submitted:
+            login(username, password)
+    with col2:
+        if st.button("Intră ca vizitator"):
+            login_as_guest()
+
+    st.markdown(
+        "<div style='margin-top:12px; opacity:0.75; font-size:12px;'>"
+        "Admin demo: <b>admin</b> / <b>admin123</b>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)  # cc-card
+
+    st.markdown("</div>", unsafe_allow_html=True)  # cc-login-grid
+    st.markdown("</div>", unsafe_allow_html=True)  # cc-login-page
 
 
 def render_sidebar(is_admin: bool) -> str:
@@ -177,6 +308,9 @@ def render_sidebar(is_admin: bool) -> str:
 
     if is_admin:
         st.sidebar.success("✅ Administrator")
+    else:
+        st.sidebar.info("👀 Client")
+
     if st.sidebar.button("Delogare 🚪"):
         logout()
 
@@ -224,7 +358,7 @@ def route(menu: str, is_admin: bool) -> None:
     )
 
     if menu == "Vizualizare filme":
-        pagina_vizualizare_filme()
+        pagina_vizualizare_filme(is_admin=is_admin)
     elif menu == "Adaugă film manual":
         pagina_adauga_film_manual()
     elif menu == "Sugestii filme":
@@ -258,6 +392,9 @@ def main() -> None:
     if not st.session_state.logged_in:
         render_login_screen()
         return
+
+    # aplicăm stilul global și după login (sidebar + background consistent)
+    _inject_global_style(LOGIN_BG_PATH)
 
     menu = render_sidebar(is_admin=st.session_state.is_admin)
     route(menu, is_admin=st.session_state.is_admin)
