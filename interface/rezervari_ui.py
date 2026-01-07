@@ -128,9 +128,7 @@ def pagina_creeaza_rezervare() -> None:
         st.warning("Trebuie să te autentifici ca să poți face o rezervare.")
         return
 
-    if str(st.session_state.get("username", "")).strip().lower() == "vizitator":
-        st.warning("Pentru a face o rezervare, te rog autentifică-te cu un cont (nu ca vizitator).")
-        return
+
 
     filme = incarca_filme()
     sali = incarca_sali()
@@ -238,7 +236,7 @@ def pagina_creeaza_rezervare() -> None:
     total = _calculeaza_total(preturi)
     st.success(f"💰 Total: **{total:.2f} RON**")
 
-    st.info("💳 Plata se face **doar la casierie**. (Nu există plată cu cardul în aplicație.)")
+    st.info("💳 Plata se face **doar la casierie**.")
 
     st.divider()
     st.subheader("🧾 Date pentru rezervare")
@@ -248,7 +246,7 @@ def pagina_creeaza_rezervare() -> None:
 
     st.info(
         "📌 La ridicarea biletelor, **persoana care a făcut rezervarea** trebuie să prezinte "
-        "**un act de identitate** și **numărul de telefon** folosit."
+        "**un act de identitate**."
     )
 
     if len(locuri_selectate) != int(numar_bilete):
@@ -340,3 +338,33 @@ def pagina_vizualizare_rezervari(is_admin: bool) -> None:
             st.write(f"User: `{r.get('username','-')}` | Data: {r.get('created_at','-')}")
             st.write(f"Locuri: {locuri_str if locuri_str else '-'}")
             st.info("Plata se face la casierie. Recomandare: cu 30 min înainte.")
+
+
+def pagina_rezervarile_mele() -> None:
+    st.header("📌 Rezervările mele")
+
+    if not st.session_state.get("logged_in", False):
+        st.warning("Autentifică-te ca să îți vezi rezervările.")
+        return
+
+    username = str(st.session_state.get("username") or "").strip()
+    if not username or username.lower() == "vizitator":
+        st.info("Ca vizitator nu ai rezervări. Creează un cont și autentifică-te.")
+        return
+
+    rezervari = incarca_rezervari(username=username, is_admin=False)
+    if not rezervari:
+        st.info("Nu ai rezervări încă.")
+        return
+
+    for r in rezervari:
+        locuri = r.get("locuri", [])
+        locuri_str = ", ".join([f"R{l['rand']} L{l['loc']} ({l['tip_bilet']})" for l in locuri])
+
+        with st.container(border=True):
+            st.markdown(f"### 🎫 Rezervare #{r['id_rezervare']}")
+            st.write(f"Film ID: **{r['film_id']}** | Sală ID: **{r['sala_id']}**")
+            st.write(f"Locuri: {locuri_str if locuri_str else '-'}")
+            st.success(f"Total: **{r['total']:.2f} RON**")
+            st.caption(f"Data: {r.get('created_at', '-')}")
+            st.info("Plata se face la casierie. Recomandare: vino cu 30 min înainte.")

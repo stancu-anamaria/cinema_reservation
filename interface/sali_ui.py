@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import streamlit as st
-
 from services.admin_service import incarca_sali, adauga_sala, sterge_sala
 
 
@@ -19,7 +18,7 @@ def _sala_capacity(sala: dict) -> int:
 
 def _format_sala_label(sala: dict) -> str:
     cap = _sala_capacity(sala)
-    return f"[{sala['id_sala']}] {sala['nume']} — {cap} locuri"
+    return f"{sala['nume']} — {cap} locuri"
 
 
 def pagina_vizualizare_sali() -> None:
@@ -89,7 +88,10 @@ def pagina_vizualizare_sali() -> None:
                 st.caption(f"Capacitate: {cap} locuri")
 
                 if st.button("🎬 Vezi filmele din această sală", key=f"goto_filme_{s['id_sala']}"):
+                    # filtrăm filmele
                     st.session_state["filme_filter_sala_id"] = int(s["id_sala"])
+
+                    # NU modificăm menu_choice direct aici (altfel crăpă dacă radio e deja creat)
                     st.session_state["navigate_to"] = "Vizualizare filme"
                     _rerun()
 
@@ -126,7 +128,7 @@ def pagina_adauga_sala(is_admin: bool) -> None:
         return
 
     sala = adauga_sala(nume=nume_clean, randuri=int(randuri), locuri_pe_rand=int(locuri))
-    st.success(f"Sală adăugată: **{sala['nume']}** (ID: {sala['id_sala']})")
+    st.success(f"Sală adăugată: **{sala['nume']}**")
     _rerun()
 
 
@@ -150,5 +152,5 @@ def pagina_sterge_sala(is_admin: bool) -> None:
     confirm = st.checkbox("Confirm că vreau să șterg definitiv această sală.")
     if st.button("Șterge definitiv", type="primary", disabled=not confirm):
         sterge_sala(opt_sala["id_sala"])
-        st.success(f"Sala **{opt_sala['nume']}** (ID {opt_sala['id_sala']}) a fost ștearsă.")
+        st.success(f"Sala **{opt_sala['nume']}** a fost ștearsă.")
         _rerun()
