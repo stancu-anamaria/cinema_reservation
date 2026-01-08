@@ -1,65 +1,110 @@
-from services.db import get_connection
+from __future__ import annotations
+
+from repositories.rezervari_repository import RezervariRepository
 
 
-def incarca_rezervari():
-    """Returnează toate rezervările ca listă de dict-uri."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id_rezervare, film_id, sala_id, rand, loc
-        FROM rezervari
-        ORDER BY id_rezervare;
-        """
-    )
-    rows = cur.fetchall()
-    conn.close()
-
-    return [
-        {
-            "id_rezervare": row["id_rezervare"],
-            "film_id": row["film_id"],
-            "sala_id": row["sala_id"],
-            "rand": row["rand"],
-            "loc": row["loc"],
-        }
-        for row in rows
-    ]
+PRETURI_BILETE = {
+    "Adult": 35.0,
+    "Copil": 20.0,
+    "Student": 25.0,
+    "Pensionar": 22.0,
+}
 
 
-def creeaza_rezervare(film_id, sala_id, rand, loc):
-    """
-    Creează o rezervare (un singur loc, ca în implementarea ta actuală).
-    """
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO rezervari (film_id, sala_id, rand, loc)
-        VALUES (?, ?, ?, ?);
-        """,
-        (int(film_id), int(sala_id), int(rand), int(loc)),
-    )
-    conn.commit()
-    id_rezervare = cur.lastrowid
-    conn.close()
+class RezervariService:
+    def __init__(self, repo: RezervariRepository | None = None):
+        self.repo = repo or RezervariRepository()
 
-    return {
-        "id_rezervare": id_rezervare,
-        "film_id": int(film_id),
-        "sala_id": int(sala_id),
-        "rand": int(rand),
-        "loc": int(loc),
-    }
+    def incarca_preturi_bilete(self):
+        return dict(PRETURI_BILETE)
+
+    def locuri_ocupate(self, film_id: int, sala_id: int) -> set[tuple[int, int]]:
+        return self.repo.locuri_ocupate(film_id, sala_id)
+
+    def incarca_rezervari_admin(self) -> list[dict]:
+        return self.repo.incarca_rezervari_admin()
+
+    def creeaza_rezervare_multi(
+        self,
+        film_id: int,
+        sala_id: int,
+        locuri_selectate: list[tuple[int, int]],
+        tip_bilet_per_loc: dict[tuple[int, int], str],
+        username: str,
+        nume_client: str,
+        telefon: str,
+    ) -> int:
+        if not username or not username.strip():
+            raise ValueError("Trebuie să fii autentificat ca să faci o rezervare.")
+        if username.strip().lower() == "vizitator":
+            raise ValueError("Pentru rezervare, autentifică-te cu un cont (nu ca vizitator).")
+
+        if not (nume_client or "").strip():
+            raise ValueError("Te rog să introduci numele pentru rezervare.")
+        if not (telefon or "").strip():
+            raise ValueError("Te rog să introduci numărul de telefon.")
+        if not locuri_selectate:
+            raise ValueError("Nu ai selectat niciun loc.")
+
+        sala = self.repo.incarca_sala(int(sala_id))
+        if not sala:
+            raise ValueError("Sala nu există.")
+
+        randuri = int(sala["randuri"])
+        locuri_pe_rand = int(sala["locuri_pe_rand"])
+        preturi = self.incarca_preturi_bilete()
+
+        # validare + tip
+        for (r, l) in locuri_selectate:
+            if int(r) < 1 or int(r) > randuri:
+                raise ValueError(f"Rând invalid: {r}")
+            if int(l) < 1 or int(l) > locuri_pe_rand:
+                raise ValueError(f"Loc invalid: {l}")
+            tip = tip_bilet_per_loc.get((r, l))
+            if not tip or tip not in preturi:
+                raise ValueError("Tip bilet invalid / lipsă pentru unul dintre locuri.")
+
+        ocupate = self.locuri_ocupate(int(film_id), int(sala_id))
+        for coord in locuri_selectate:
+            if coord in ocupate:
+                raise ValueError(f"Locul R{coord[0]} L{coord[1]} este deja ocupat.")
+
+        rez_id = self.repo.creeaza_header(
+            film_id=int(film_id),
+            sala_id=int(sala_id),
+            username=username.strip(),
+            nume_client=nume_client.strip(),
+            telefon=telefon.strip(),
+        )
+
+        for (r, l) in locuri_selectate:
+            tip = tip_bilet_per_loc[(r, l)]
+            pret = float(preturi[tip])
+            self.repo.adauga_loc(rez_id, int(film_id), int(sala_id), int(r), int(l), tip, pret)
+
+        return rez_id
+
+    def sterge_rezervare(self, id_rezervare: int) -> None:
+        self.repo.sterge_rezervare(id_rezervare)
 
 
-def sterge_rezervare(id_rezervare):
-    """Șterge o rezervare după ID."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM rezervari WHERE id_rezervare = ?;",
-        (int(id_rezervare),),
-    )
-    conn.commit()
-    conn.close()
+# --------- wrappers (pentru UI existent) ---------
+_rez = RezervariService()
+
+def incarca_preturi_bilete():
+    return _rez.incarca_preturi_bilete()
+
+def locuri_ocupate(film_id: int, sala_id: int):
+    return _rez.locuri_ocupate(film_id, sala_id)
+
+def creeaza_rezervare_multi(**kwargs):
+    return _rez.creeaza_rezervare_multi(**kwargs)
+
+def sterge_rezervare(id_rezervare: int):
+    _rez.sterge_rezervare(id_rezervare)
+
+def incarca_rezervari(username: str | None, is_admin: bool):
+    # tu vrei doar admin => păstrăm doar admin
+    if not is_admin:
+        return []
+    return _rez.incarca_rezervari_admin()

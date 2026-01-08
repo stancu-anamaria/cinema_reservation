@@ -1,11 +1,64 @@
 from services.db import get_connection
 
 
+def _time_to_minutes(hhmm: str) -> int:
+    parts = (hhmm or "").strip().split(":")
+    if len(parts) != 2:
+        raise ValueError("Ora trebuie să fie în format HH:MM (ex: 18:30).")
+
+    try:
+        h = int(parts[0])
+        m = int(parts[1])
+    except ValueError:
+        raise ValueError("Ora trebuie să fie în format HH:MM (ex: 18:30).")
+
+    if h < 0 or h > 23 or m < 0 or m > 59:
+        raise ValueError("Ora nu este validă. (00:00 - 23:59)")
+
+    return h * 60 + m
+
+
+def _exista_suprapunere_film(sala_id: int, start_time: str, durata: int) -> bool:
+    start_new = _time_to_minutes(start_time)
+    end_new = start_new + int(durata)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT start_time, durata
+        FROM filme
+        WHERE sala_id = ?
+          AND start_time IS NOT NULL
+          AND TRIM(start_time) <> '';
+        """,
+        (int(sala_id),),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    for r in rows:
+        old_start_str = (r["start_time"] or "").strip()
+        if not old_start_str:
+            continue
+
+        try:
+            start_old = _time_to_minutes(old_start_str)
+        except Exception:
+            continue
+
+        end_old = start_old + int(r["durata"])
+
+        # overlap: new_start < old_end AND old_start < new_end
+        if start_new < end_old and start_old < end_new:
+            return True
+
+    return False
+
+
 # -------------------- SĂLI -----------------------
 
-
 def incarca_sali():
-    """Returnează o listă de săli sub formă de dict-uri."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT id_sala, nume, randuri, locuri_pe_rand FROM sali ORDER BY id_sala;")
@@ -24,7 +77,6 @@ def incarca_sali():
 
 
 def adauga_sala(nume, randuri, locuri_pe_rand):
-    """Adaugă o sală nouă și o întoarce ca dict."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -47,11 +99,6 @@ def adauga_sala(nume, randuri, locuri_pe_rand):
 
 
 def sterge_sala(id_sala):
-    """
-    Șterge o sală. Datorită foreign_keys ON DELETE CASCADE:
-      - se șterg automat și filmele din sală
-      - se șterg automat și rezervările din acele filme/sală
-    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM sali WHERE id_sala = ?;", (int(id_sala),))
@@ -61,14 +108,12 @@ def sterge_sala(id_sala):
 
 # -------------------- FILME -----------------------
 
-
 def incarca_filme():
-    """Returnează lista de filme ca dict-uri."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id_film, titlu, durata, sala_id,
+        SELECT id_film, titlu, durata, sala_id, start_time,
                descriere, rated, poster, actori, genuri, tags
         FROM filme
         ORDER BY id_film;
@@ -83,6 +128,7 @@ def incarca_filme():
             "titlu": row["titlu"],
             "durata": row["durata"],
             "sala_id": row["sala_id"],
+            "start_time": row["start_time"],
             "descriere": row["descriere"],
             "rated": row["rated"],
             "poster": row["poster"],
@@ -98,6 +144,7 @@ def adauga_film(
     titlu,
     durata,
     sala_id,
+    start_time: str | None = None,
     descriere=None,
     rated=None,
     poster=None,
@@ -105,24 +152,37 @@ def adauga_film(
     genuri=None,
     tags=None,
 ):
-    """
-    Adaugă film nou (manual sau bazat pe API) și-l întoarce ca dict.
-    """
+    durata_int = int(durata)
+    sala_id_int = int(sala_id)
+
+    start_clean = (start_time or "").strip()
+    if start_clean:
+        _ = _time_to_minutes(start_clean)
+
+        if _exista_suprapunere_film(sala_id_int, start_clean, durata_int):
+            raise ValueError(
+                "În sala aleasă există deja un film care rulează în acel interval. "
+                "Alege altă oră sau altă sală."
+            )
+    else:
+        start_clean = None
+
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO filme (
-            titlu, durata, sala_id,
+            titlu, durata, sala_id, start_time,
             descriere, rated, poster,
             actori, genuri, tags
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             titlu,
-            int(durata),
-            int(sala_id),
+            durata_int,
+            sala_id_int,
+            start_clean,
             descriere,
             rated,
             poster,
@@ -138,8 +198,9 @@ def adauga_film(
     return {
         "id_film": id_film,
         "titlu": titlu,
-        "durata": int(durata),
-        "sala_id": int(sala_id),
+        "durata": durata_int,
+        "sala_id": sala_id_int,
+        "start_time": start_clean,
         "descriere": descriere,
         "rated": rated,
         "poster": poster,
@@ -150,10 +211,6 @@ def adauga_film(
 
 
 def sterge_film(id_film):
-    """
-    Șterge un film. Datorită ON DELETE CASCADE:
-      - se șterg automat rezervările legate de acest film.
-    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM filme WHERE id_film = ?;", (int(id_film),))
