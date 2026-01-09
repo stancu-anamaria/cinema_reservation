@@ -1,4 +1,4 @@
-# path: interface/app.py
+
 from __future__ import annotations
 
 import streamlit as st
@@ -22,10 +22,12 @@ from interface.rezervari_ui import (
 
 
 def _rerun() -> None:
-    try:
+    if hasattr(st, "rerun"):
         st.rerun()
-    except Exception:
+    elif hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
+    else:
+        raise RuntimeError("Streamlit rerun is not available.")
 
 
 def _init_state() -> None:
