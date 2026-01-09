@@ -1,4 +1,4 @@
-# path: interface/app.py
+
 from __future__ import annotations
 
 import streamlit as st
@@ -110,8 +110,8 @@ def render_login_screen() -> None:
 
 def render_sidebar(is_admin: bool) -> str:
     st.sidebar.markdown("## 👤 Profil")
-    st.sidebar.write("**Utilizator:** `{st.session_state.username}`")
-    st.sidebar.write("**Rol:** `{st.session_state.role}`")
+    st.sidebar.write(f"**Utilizator:** `{st.session_state.username}`")
+    st.sidebar.write(f"**Rol:** `{st.session_state.role}`")
 
     if is_admin:
         st.sidebar.success("✅ Administrator")
@@ -161,8 +161,8 @@ def route(menu: str, is_admin: bool) -> None:
     st.title("🎬 Sistem de Rezervare Cinema")
 
     st.info(
-        "Ești autentificat ca: **{st.session_state.role}**"
-        "{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
+        f"Ești autentificat ca: **{st.session_state.role}**"
+        f"{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
     )
 
     if menu == "Vizualizare filme":

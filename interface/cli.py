@@ -1,7 +1,7 @@
 import streamlit as st
 
 from services.rezervari_service import (
-    creeaza_rezervare,
+    creeaza_rezervare_multi,
     sterge_rezervare,
     incarca_rezervari,
 )
@@ -156,7 +156,7 @@ elif meniu == "Creează rezervare":
         loc = st.number_input("Loc", min_value=1, step=1)
 
         if st.button("Creează rezervare"):
-            rezervare = creeaza_rezervare(
+            rezervare = creeaza_rezervare_multi(
                 film_id=opt_film["id_film"],
                 sala_id=opt_sala["id_sala"],
                 rand=int(rand),
