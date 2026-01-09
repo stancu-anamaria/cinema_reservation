@@ -30,3 +30,4 @@ Cerinte: Python 3.11+
 
 Instalare si rulare: 1️.Clonează repository-ul: git clone <link-repo-github> cd cinema-reservation 2.Instalează dependențele: pip install -r requirements.txt 3️.Rulează aplicația: python -m streamlit run interface/app.py Aplicația se deschide automat în browser.
 Conturi implicite: Administrator: -username: admin -parola: admin123
+
