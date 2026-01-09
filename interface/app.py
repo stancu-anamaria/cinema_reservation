@@ -22,10 +22,12 @@ from interface.rezervari_ui import (
 
 
 def _rerun() -> None:
-    try:
+    if hasattr(st, "rerun"):
         st.rerun()
-    except Exception:
+    elif hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
+    else:
+        raise RuntimeError("Streamlit rerun is not available.")
 
 
 def _init_state() -> None:
@@ -108,8 +110,8 @@ def render_login_screen() -> None:
 
 def render_sidebar(is_admin: bool) -> str:
     st.sidebar.markdown("## 👤 Profil")
-    st.sidebar.write(f"**Utilizator:** `{st.session_state.username}`")
-    st.sidebar.write(f"**Rol:** `{st.session_state.role}`")
+    st.sidebar.write("**Utilizator:** `{st.session_state.username}`")
+    st.sidebar.write("**Rol:** `{st.session_state.role}`")
 
     if is_admin:
         st.sidebar.success("✅ Administrator")
@@ -159,8 +161,8 @@ def route(menu: str, is_admin: bool) -> None:
     st.title("🎬 Sistem de Rezervare Cinema")
 
     st.info(
-        f"Ești autentificat ca: **{st.session_state.role}**"
-        f"{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
+        "Ești autentificat ca: **{st.session_state.role}**"
+        "{' (utilizator: ' + st.session_state.username + ')' if st.session_state.username else ''}"
     )
 
     if menu == "Vizualizare filme":
