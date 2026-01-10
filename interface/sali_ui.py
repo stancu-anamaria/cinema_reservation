@@ -1,9 +1,8 @@
-# path: interface/sali_ui.py
 from __future__ import annotations
 
 import streamlit as st
 
-from services.admin_service import incarca_sali, adauga_sala, sterge_sala, incarca_filme
+from services.admin_service import (incarca_sali, adauga_sala, sterge_sala, incarca_filme)
 
 
 def _rerun() -> None:

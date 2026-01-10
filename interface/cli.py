@@ -57,7 +57,7 @@ if meniu == "Vizualizare filme":
             st.write(f"ID film: {f.get('id_film', 'N/A')}")
             st.write(f"Durata: {f.get('durata', 0)} minute")
             st.write(f"Sală ID: {f.get('sala_id', 'N/A')}")
-            st.write("---")
+            st.write("---")  #linie orizontala
 
 
 # ----------------- ADAUGĂ FILM MANUAL -----------------
