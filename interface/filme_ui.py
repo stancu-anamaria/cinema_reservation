@@ -7,7 +7,12 @@ import uuid
 
 import streamlit as st
 
-from services.admin_service import adauga_film, incarca_filme, sterge_film, incarca_sali
+from services.admin_service import (
+    adauga_film,
+    incarca_filme,
+    sterge_film,
+    incarca_sali,
+)
 from services.api_filme_service import cauta_film_in_api
 
 
@@ -72,18 +77,26 @@ def _sala_label(sala_id: int, sali_by_id: dict[int, dict]) -> str:
     return f"{s['nume']}"
 
 
-
-def film_exista_deja(titlu: str, sala_id: int) -> bool:
+def film_exista_deja(titlu: str, sala_id: int, start_time: str | None) -> bool:
+    """
+    Considerăm duplicat doar dacă există deja:
+    - același titlu (case-insensitive)
+    - aceeași sală
+    - aceeași oră de start (exact)
+    """
     filme = incarca_filme()
     titlu_norm = (titlu or "").strip().lower()
     sala_id = int(sala_id)
+    start_clean = (start_time or "").strip()
 
     for f in filme:
-        if (
-            str(f.get("titlu", "")).strip().lower() == titlu_norm
-            and int(f.get("sala_id", 0)) == sala_id
-        ):
+        if str(f.get("titlu", "")).strip().lower() != titlu_norm:
+            continue
+        if int(f.get("sala_id", 0)) != sala_id:
+            continue
+        if (str(f.get("start_time") or "").strip()) == start_clean:
             return True
+
     return False
 
 
@@ -167,14 +180,10 @@ def pagina_vizualizare_filme() -> None:
     st.header("🎥 Filme disponibile")
 
     sali_by_id = _sali_map()
-
     filtre_sala_id = st.session_state.get("filme_filter_sala_id")
 
-    # Filtru discret în sidebar
-    from services.admin_service import incarca_sali
-
+    # Filtru discret în sidebar (arată numele sălii, nu ID-ul)
     if filtre_sala_id is not None:
-        # arătăm numele sălii, nu id-ul
         sali = incarca_sali()
         sala_nume = next(
             (s["nume"] for s in sali if int(s["id_sala"]) == int(filtre_sala_id)),
@@ -196,51 +205,54 @@ def pagina_vizualizare_filme() -> None:
         st.info("Nu există filme înregistrate pentru selecția curentă.")
         return
 
-    # sortăm frumos: după sală, apoi după start_time (dacă există)
-    def sort_key(f: dict):
-        sala = int(f.get("sala_id", 0))
-        stt = _time_to_minutes(str(f.get("start_time") or "")) or 10**9
-        return (sala, stt, int(f.get("id_film", 0)))
-
-    filme.sort(key=sort_key)
-
+    # Grupăm după titlu (un singur card per film)
+    grupuri: dict[str, list[dict]] = {}
     for f in filme:
-        titlu = f.get("titlu", "Fără titlu")
-        durata = int(f.get("durata", 0) or 0)
-        sala_id = int(f.get("sala_id", 0) or 0)
-        start_time = f.get("start_time", None)
+        titlu = str(f.get("titlu") or "Fără titlu").strip()
+        key = titlu.lower()
+        grupuri.setdefault(key, []).append(f)
 
-        descriere = f.get("descriere", None)
-        rated = f.get("rated", None)
-        poster = f.get("poster", None)
-        actori = f.get("actori", None)
-        genuri = f.get("genuri", None)
-        tags = f.get("tags", None)
+    keys_sorted = sorted(grupuri.keys())
 
-        interval = _format_interval(start_time, durata) if start_time else None
-        sala_lbl = _sala_label(sala_id, sali_by_id)
+    for key in keys_sorted:
+        items = grupuri[key]
+
+        # sortăm difuzările după sală și oră
+        def sort_key(f: dict):
+            sala = int(f.get("sala_id", 0))
+            stt = _time_to_minutes(str(f.get("start_time") or "")) or 10**9
+            return (sala, stt, int(f.get("id_film", 0)))
+
+        items.sort(key=sort_key)
+
+        # “reprezentativ”: primul cu poster/descriere dacă există
+        rep = items[0]
+        for it in items:
+            if it.get("poster") or it.get("descriere") or it.get("actori") or it.get("genuri"):
+                rep = it
+                break
+
+        titlu = rep.get("titlu", "Fără titlu")
+        rated = rep.get("rated", None)
+        tags = rep.get("tags", None)
+        poster = rep.get("poster", None)
+        descriere = rep.get("descriere", None)
+        actori = rep.get("actori", None)
+        genuri = rep.get("genuri", None)
 
         with st.container(border=True):
+            # header card
             top_left, top_right = st.columns([3, 2], vertical_alignment="center")
-
             with top_left:
                 st.markdown(f"### 🎬 {titlu}")
-                sub = []
-                sub.append(f"🏢 **{sala_lbl}**")
-                if interval:
-                    sub.append(f"🕒 **{interval}**")
-                elif start_time:
-                    sub.append(f"🕒 **{start_time}**")
-                if durata:
-                    sub.append(f"⏱ **{durata} min**")
-                st.caption(" | ".join(sub))
-
+                st.caption(f"📌 Difuzări disponibile: **{len(items)}**")
             with top_right:
                 if rated:
                     st.write(f"🔞 {rated}")
                 if tags:
                     st.write(f"✨ {tags}")
 
+            # detaliile apar MEREU (atrag atenția)
             col1, col2 = st.columns([1, 2])
             with col1:
                 if poster:
@@ -253,6 +265,29 @@ def pagina_vizualizare_filme() -> None:
                 if descriere:
                     st.write("**Descriere:**")
                     st.write(descriere)
+                if not any([poster, descriere, actori, genuri]):
+                    st.info("Nu există detalii suplimentare pentru acest film.")
+
+            # programul rămâne într-un singur loc (nu mai e încărcat)
+            with st.expander("📅 Vezi când rulează", expanded=False):
+                for f in items:
+                    durata = int(f.get("durata", 0) or 0)
+                    sala_id = int(f.get("sala_id", 0) or 0)
+                    start_time = f.get("start_time", None)
+
+                    sala_lbl = _sala_label(sala_id, sali_by_id)
+                    interval = _format_interval(start_time, durata) if start_time else None
+
+                    linie = []
+                    linie.append(f"🏢 **{sala_lbl}**")
+                    if interval:
+                        linie.append(f"🕒 **{interval}**")
+                    elif start_time:
+                        linie.append(f"🕒 **{start_time}**")
+                    if durata:
+                        linie.append(f"⏱ **{durata} min**")
+
+                    st.write(" | ".join(linie))
 
 
 def pagina_adauga_film_manual() -> None:
@@ -270,7 +305,7 @@ def pagina_adauga_film_manual() -> None:
         opt_sala = st.selectbox(
             "Alege sala",
             options=sali,
-            format_func=lambda s: f"[{s['id_sala']}] {s['nume']}",
+            format_func=lambda s: f"{s['nume']}",
         )
         sala_id = int(opt_sala["id_sala"])
 
@@ -297,8 +332,13 @@ def pagina_adauga_film_manual() -> None:
         st.warning("Te rog să introduci ora de început (HH:MM).")
         return
 
-    if film_exista_deja(titlu, sala_id):
-        st.warning("Acest film există deja în sala aleasă.")
+    # validare simplă HH:MM la nivel UI (ca să nu crape)
+    if _time_to_minutes(start_time.strip()) is None:
+        st.error("Ora nu este validă. Format corect: **HH:MM** (ex: 18:30).")
+        return
+
+    if film_exista_deja(titlu, sala_id, start_time):
+        st.warning("Există deja acest film în sala aleasă la aceeași oră.")
         return
 
     poster_path = None
@@ -327,14 +367,15 @@ def pagina_adauga_film_manual() -> None:
         )
 
         interval = _format_interval(film.get("start_time"), film.get("durata"))
+        sala_lbl = _sala_label(int(film["sala_id"]), _sali_map())
+
         st.success("✅ Film adăugat cu succes!")
         st.info(
-            f"🎬 **{film['titlu']}** | 🏢 Sala **{film['sala_id']}** | 🕒 **{interval or film.get('start_time','-')}**"
+            f"🎬 **{film['titlu']}** | 🏢 **{sala_lbl}** | 🕒 **{interval or film.get('start_time','-')}**"
         )
         _rerun()
 
     except ValueError as e:
-        # mesajele tale din service sunt ok, le afișăm “frumos”
         st.error(f"❌ Nu pot adăuga filmul: {str(e)}")
 
 
@@ -353,7 +394,7 @@ def pagina_sugestii_filme(is_admin: bool) -> None:
     opt_sala = st.selectbox(
         "Sală",
         options=sali,
-        format_func=lambda s: f"[{s['id_sala']}] {s['nume']}",
+        format_func=lambda s: f"{s['nume']}",
     )
     sala_id = int(opt_sala["id_sala"])
 
@@ -461,8 +502,12 @@ def pagina_sugestii_filme(is_admin: bool) -> None:
                 if not (start_time or "").strip():
                     st.warning("Te rog să introduci ora de început (HH:MM).")
                     continue
-                if film_exista_deja(titlu_ro, sala_id):
-                    st.warning("Acest film există deja în sala aleasă.")
+                if _time_to_minutes(start_time.strip()) is None:
+                    st.error("Ora nu este validă. Format corect: **HH:MM** (ex: 18:30).")
+                    continue
+
+                if film_exista_deja(titlu_ro, sala_id, start_time):
+                    st.warning("Există deja acest film în sala aleasă la aceeași oră.")
                     continue
 
                 try:
@@ -480,9 +525,11 @@ def pagina_sugestii_filme(is_admin: bool) -> None:
                     )
 
                     interval = _format_interval(film.get("start_time"), film.get("durata"))
+                    sala_lbl = _sala_label(int(film["sala_id"]), _sali_map())
+
                     st.success("✅ Film salvat cu succes!")
                     st.info(
-                        f"🎬 **{film['titlu']}** | 🏢 Sala **{film['sala_id']}** | 🕒 **{interval or film.get('start_time','-')}**"
+                        f"🎬 **{film['titlu']}** | 🏢 **{sala_lbl}** | 🕒 **{interval or film.get('start_time','-')}**"
                     )
                     _rerun()
 
@@ -502,13 +549,18 @@ def pagina_sterge_film(is_admin: bool) -> None:
         st.info("Nu există filme înregistrate.")
         return
 
-    # afișare mai “umană”
+    sali_by_id = _sali_map()
+
     def label(f: dict) -> str:
         stt = f.get("start_time")
         durata = int(f.get("durata", 0) or 0)
         interval = _format_interval(stt, durata)
-        sala = f.get("sala_id", "-")
-        return f"[{f.get('id_film','-')}] {f.get('titlu','-')} | Sala {sala} | {interval or (stt or 'fără oră')}"
+        sala_lbl = _sala_label(int(f.get("sala_id", 0) or 0), sali_by_id)
+
+        return (
+            f"{f.get('titlu','-')} | {sala_lbl} | "
+            f"{interval or (stt or 'fără oră')}"
+        )
 
     opt_film = st.selectbox("Alege filmul", options=filme, format_func=label)
 
