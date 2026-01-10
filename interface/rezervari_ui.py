@@ -10,6 +10,7 @@ from services.rezervari_service import (
     locuri_ocupate,
     creeaza_rezervare_multi,
     incarca_preturi_bilete,
+    seteaza_bilete_ridicate,
 )
 
 
@@ -177,7 +178,7 @@ def pagina_creeaza_rezervare() -> None:
         st.info("Nu există săli. Cere administratorului să adauge o sală.")
         return
 
-    # 1) clientul alege "proiecția" (adică film + sală + interval/oră)
+    # 1) clientul alege proiecția (film + sală + interval/oră)
     proiectii = []
     for f in filme:
         sala = _gaseste_sala(sali, int(f["sala_id"]))
@@ -200,7 +201,6 @@ def pagina_creeaza_rezervare() -> None:
             }
         )
 
-    # sort frumos (după titlu, apoi oră)
     def sort_key(p: dict):
         stt = _time_to_minutes(p.get("start_time") or "") or 10**9
         return (str(p.get("titlu", "")).lower(), str(p.get("sala_nume", "")).lower(), stt)
@@ -342,33 +342,121 @@ def pagina_creeaza_rezervare() -> None:
 
 
 def pagina_anuleaza_rezervare(is_admin: bool) -> None:
-    st.header("❌ Anulează rezervare")
+    st.header("❌ Anulează rezervare (admin)")
 
     if not is_admin:
         st.error("Doar administratorul poate anula rezervări.")
         return
 
-    rezervari = incarca_rezervari(username=None, is_admin=True)
-    if not rezervari:
-        st.info("Nu există rezervări înregistrate.")
+    filme = incarca_filme()
+    sali = incarca_sali()
+
+    if not filme:
+        st.info("Nu există filme.")
         return
 
-    def label(r: dict) -> str:
-        film = r.get("film_titlu") or "Film"
-        sala = r.get("sala_nume") or "Sala"
+    # 1) TITLU unic
+    titluri = sorted(
+        {
+            str(f.get("titlu", "")).strip()
+            for f in filme
+            if str(f.get("titlu", "")).strip()
+        }
+    )
+    if not titluri:
+        st.info("Nu există titluri de filme valide.")
+        return
+
+    titlu_selectat = st.selectbox("🎬 Alege filmul", options=titluri, key="anul_film")
+
+    # 2) Proiecții (film_id) pentru titlul ales
+    proiectii = []
+    for f in filme:
+        if str(f.get("titlu", "")).strip() != titlu_selectat:
+            continue
+
+        sala_id = int(f.get("sala_id", 0) or 0)
+        sala = _gaseste_sala(sali, sala_id)
+        sala_nume = sala["nume"] if sala else "Sala"
+
+        start = (f.get("start_time") or "").strip() or None
+        durata = int(f.get("durata", 0) or 0)
+        interval = _format_interval(start, durata) if start else "fără oră"
+
+        proiectii.append(
+            {
+                "film_id": int(f["id_film"]),
+                "sala_id": sala_id,
+                "sala_nume": sala_nume,
+                "start_time": start,
+                "durata": durata,
+                "label": f"🕒 {interval} | 🏢 {sala_nume}",
+            }
+        )
+
+    if not proiectii:
+        st.info("Nu există proiecții pentru filmul selectat.")
+        return
+
+    def sort_key(p: dict):
+        stt = _time_to_minutes(p.get("start_time") or "") or 10**9
+        return (stt, str(p.get("sala_nume", "")).lower(), int(p.get("film_id", 0)))
+
+    proiectii.sort(key=sort_key)
+
+    opt_proj = st.selectbox(
+        "🕒 Alege intervalul (proiecția)",
+        options=proiectii,
+        format_func=lambda p: p["label"],
+        key="anul_proj",
+    )
+
+    film_id = int(opt_proj["film_id"])
+
+    rezervari = incarca_rezervari(username=None, is_admin=True, film_id=film_id, start_time=None)
+    if not rezervari:
+        st.info("Nu există rezervări pentru proiecția selectată.")
+        return
+
+    st.warning("⚠️ La anulare, locurile se eliberează imediat.")
+    st.divider()
+
+    for r in rezervari:
+        film = r.get("film_titlu") or titlu_selectat
+        sala = r.get("sala_nume") or opt_proj["sala_nume"]
         interval = _format_interval(r.get("film_start_time"), r.get("film_durata"))
+
+        locuri = r.get("locuri", [])
+        locuri_str = ", ".join([f"R{l['rand']} L{l['loc']} ({l['tip_bilet']})" for l in locuri]) or "-"
+
         nume = r.get("nume_client") or "-"
-        total = float(r.get("total", 0.0))
         telefon = r.get("telefon") or "-"
-        return f"👤 {nume} ({telefon})  |  🎬 {film}  |  🏢 {sala}  |  🕒 {interval}  |  💰 {total:.2f} RON"
+        created = r.get("created_at") or "-"
+        total = float(r.get("total", 0.0) or 0.0)
 
-    opt = st.selectbox("Alege rezervarea", options=rezervari, format_func=label)
+        with st.container(border=True):
+            st.markdown(f"### 🎫 {film}")
+            st.caption(f"🏢 **{sala}** | 🕒 **{interval}** | 📅 {created}")
 
-    st.warning("La anulare, locurile se eliberează imediat.")
-    if st.button("🗑 Anulează rezervarea selectată"):
-        sterge_rezervare(opt["id_rezervare"])
-        st.success("Rezervarea a fost anulată. Locurile sunt acum libere.")
-        st.rerun()
+            st.write(f"👤 **Client:** {nume}  |  📞 **Telefon:** {telefon}")
+            st.write(f"💺 **Locuri:** {locuri_str}")
+            st.write(f"💰 **Total:** `{total:.2f} RON`")
+
+            st.markdown("#### ⚠️ Acțiuni")
+            confirm = st.checkbox(
+                "Confirm anularea acestei rezervări",
+                key=f"conf_del_{r['id_rezervare']}",
+            )
+
+            if st.button(
+                "🗑 Anulează (șterge) rezervarea",
+                disabled=not confirm,
+                key=f"del_{r['id_rezervare']}",
+            ):
+                sterge_rezervare(int(r["id_rezervare"]))
+                st.success("Rezervarea a fost anulată. Locurile sunt acum libere.")
+                st.rerun()
+
 
 
 def pagina_vizualizare_rezervari(is_admin: bool) -> None:
@@ -378,23 +466,118 @@ def pagina_vizualizare_rezervari(is_admin: bool) -> None:
         st.error("Doar administratorul poate vizualiza rezervările.")
         return
 
-    rezervari = incarca_rezervari(username=None, is_admin=True)
-    if not rezervari:
-        st.info("Nu există rezervări.")
+    filme = incarca_filme()
+    sali = incarca_sali()
+
+    if not filme:
+        st.info("Nu există filme.")
         return
 
+    # 1) TITLU unic
+    titluri = sorted(
+        {
+            str(f.get("titlu", "")).strip()
+            for f in filme
+            if str(f.get("titlu", "")).strip()
+        }
+    )
+    if not titluri:
+        st.info("Nu există titluri de filme valide.")
+        return
+
+    titlu_selectat = st.selectbox("🎬 Alege filmul", options=titluri)
+
+    # 2) Proiecții pentru titlul ales (film_id = proiecție)
+    proiectii = []
+    for f in filme:
+        if str(f.get("titlu", "")).strip() != titlu_selectat:
+            continue
+
+        sala_id = int(f.get("sala_id", 0) or 0)
+        sala = _gaseste_sala(sali, sala_id)
+        sala_nume = sala["nume"] if sala else "Sala"
+
+        start = (f.get("start_time") or "").strip() or None
+        durata = int(f.get("durata", 0) or 0)
+
+        interval = _format_interval(start, durata) if start else "fără oră"
+        proiectii.append(
+            {
+                "film_id": int(f["id_film"]),
+                "sala_id": sala_id,
+                "sala_nume": sala_nume,
+                "start_time": start,
+                "durata": durata,
+                "label": f"🕒 {interval} | 🏢 {sala_nume}",
+            }
+        )
+
+    if not proiectii:
+        st.info("Nu există proiecții pentru filmul selectat.")
+        return
+
+    def sort_key(p: dict):
+        stt = _time_to_minutes(p.get("start_time") or "") or 10**9
+        return (stt, str(p.get("sala_nume", "")).lower(), int(p.get("film_id", 0)))
+
+    proiectii.sort(key=sort_key)
+
+    opt_proj = st.selectbox(
+        "🕒 Alege intervalul (proiecția)",
+        options=proiectii,
+        format_func=lambda p: p["label"],
+    )
+
+    film_id = int(opt_proj["film_id"])
+
+    doar_neridicate = st.checkbox("Doar neridicate", value=False)
+
+    rezervari = incarca_rezervari(username=None, is_admin=True, film_id=film_id, start_time=None)
+    if doar_neridicate:
+        rezervari = [r for r in rezervari if not r.get("ridicate", False)]
+
+    if not rezervari:
+        st.info("Nu există rezervări pentru proiecția selectată.")
+        return
+
+    total_incasari = sum(float(r.get("total", 0.0) or 0.0) for r in rezervari)
+    ridicate_cnt = sum(1 for r in rezervari if r.get("ridicate", False))
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Rezervări", len(rezervari))
+    k2.metric("Ridicate", ridicate_cnt)
+    k3.metric("Total", f"{total_incasari:.2f} RON")
+
+    st.divider()
+
     for r in rezervari:
-        film = r.get("film_titlu") or "Film"
-        sala = r.get("sala_nume") or "Sala"
+        film = r.get("film_titlu") or titlu_selectat
+        sala = r.get("sala_nume") or opt_proj["sala_nume"]
         interval = _format_interval(r.get("film_start_time"), r.get("film_durata"))
 
         locuri = r.get("locuri", [])
-        locuri_str = ", ".join([f"R{l['rand']} L{l['loc']} ({l['tip_bilet']})" for l in locuri])
+        locuri_str = ", ".join([f"R{l['rand']} L{l['loc']} ({l['tip_bilet']})" for l in locuri]) or "-"
 
-        titlu_exp = f"🎫 {film} | 🏢 {sala} | 🕒 {interval} | Total {r['total']:.2f} RON"
+        nume = r.get("nume_client") or "-"
+        telefon = r.get("telefon") or "-"
+        created = r.get("created_at") or "-"
 
-        with st.expander(titlu_exp):
-            st.write(f"Client: **{r.get('nume_client','-')}** | Telefon: **{r.get('telefon','-')}**")
-            st.write(f"User: `{r.get('username','-')}` | Data: {r.get('created_at','-')}")
-            st.write(f"Locuri: {locuri_str if locuri_str else '-'}")
-            st.info("Plata se face la casierie. Recomandare: cu 30 min înainte.")
+        total = float(r.get("total", 0.0) or 0.0)
+        rid = bool(r.get("ridicate", False))
+
+        with st.container(border=True):
+            top_l, top_r = st.columns([3, 1], vertical_alignment="center")
+
+            with top_l:
+                st.markdown(f"### 🎫 {film}")
+                st.caption(f"🏢 **{sala}** | 🕒 **{interval}** | 📅 {created}")
+
+            with top_r:
+                cheie = f"ridicate_{r['id_rezervare']}"
+                val_nou = st.checkbox("✅ Ridicate", value=rid, key=cheie)
+                if val_nou != rid:
+                    seteaza_bilete_ridicate(int(r["id_rezervare"]), bool(val_nou))
+                    st.rerun()
+
+            st.write(f"👤 **Client:** {nume}  |  📞 **Telefon:** {telefon}")
+            st.write(f"💺 **Locuri:** {locuri_str}")
+            st.write(f"💰 **Total:** `{total:.2f} RON`")

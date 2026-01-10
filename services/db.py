@@ -71,6 +71,10 @@ def _asigura_coloane_rezervari(cur: sqlite3.Cursor) -> None:
     if "telefon" not in cols:
         cur.execute("ALTER TABLE rezervari ADD COLUMN telefon TEXT;")
 
+    # ✅ NOU: bilete ridicate (0/1)
+    if "ridicate" not in cols:
+        cur.execute("ALTER TABLE rezervari ADD COLUMN ridicate INTEGER NOT NULL DEFAULT 0;")
+
 
 def _creeaza_schema(cur: sqlite3.Cursor) -> None:
     # sali
@@ -120,6 +124,7 @@ def _creeaza_schema(cur: sqlite3.Cursor) -> None:
             created_at   TEXT DEFAULT (datetime('now')),
             nume_client  TEXT,
             telefon      TEXT,
+            ridicate     INTEGER NOT NULL DEFAULT 0,
 
             FOREIGN KEY (film_id)
                 REFERENCES filme(id_film)
