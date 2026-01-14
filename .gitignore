@@ -216,7 +216,7 @@ data/*.db
 *.db
 
 # Generated posters
-poster_*.jpg
+data/postere/
 
 
 
