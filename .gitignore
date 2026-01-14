@@ -207,3 +207,16 @@ marimo/_lsp/
 __marimo__/
 
 data/*.db
+
+# =====================
+# Project-specific
+# =====================
+
+# Database
+*.db
+
+# Generated posters
+poster_*.jpg
+
+
+
